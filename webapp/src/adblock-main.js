@@ -14,6 +14,7 @@ import { userScriptStartAdBlock } from './adblock.js';
 import { userScriptStartShortsBlockUI } from './shorts-block.js';
 import { userScriptStartSponsorBlock } from './sponsorblock.js';
 import { userScriptStartReturnYouTubeDislike } from './returnyoutubedislike.js';
+import { userScriptStartUiExtras } from './ui-extras.js';
 import { resetAutoLogin } from './auto-login.js';
 
 console.info('[ytaf] adblock-main.js LOADED, all imports successful');
@@ -109,6 +110,7 @@ export async function startUserScript() {
     userScriptStartShortsBlockUI();
     userScriptStartSponsoredQrCodeUI();
     startDebugOverlay();
+    userScriptStartUiExtras();
     console.info('[ytaf] UI started');
   } catch (err) {
     console.warn('[ytaf] Failed to start UI:', err);

@@ -10,7 +10,7 @@ export default {
     autoLogin: 'Salta automaticamente la selezione account',
     sponsorblock: 'Attiva SponsorBlock',
     ryd: 'Mostra numero di non mi piace',
-    shorts: 'Blocca YouTube Shorts',
+    shorts: 'Blocca YouTube Shorts', showClock: 'Mostra orologio', hideLogo: 'Nascondi logo YouTube', forceHighRes: 'Forza qualità video massima',
     sponsor: 'Salta segmenti sponsor',
     intro: 'Salta intro',
     outro: 'Salta outro',
