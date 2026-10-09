@@ -1,7 +1,7 @@
 export default {
   ui: {
     title: 'YouTube webOS Cobalt AdFree',
-    adblock: 'Advertenties blokkeren', startupPage: 'Startpagina', startupPageHome: 'Home', startupPageSubscriptions: 'Abonnementen', startupPageShorts: 'Shorts', startupPageLibrary: 'Bibliotheek', autoLogin: 'Accountselectie automatisch overslaan', sponsorblock: 'SponsorBlock inschakelen', ryd: 'Aantal dislikes tonen', shorts: 'YouTube Shorts blokkeren',
+    adblock: 'Advertenties blokkeren', startupPage: 'Startpagina', startupPageHome: 'Home', startupPageSubscriptions: 'Abonnementen', startupPageShorts: 'Shorts', startupPageLibrary: 'Bibliotheek', autoLogin: 'Accountselectie automatisch overslaan', sponsorblock: 'SponsorBlock inschakelen', ryd: 'Aantal dislikes tonen', shorts: 'YouTube Shorts blokkeren', removeEndscreen: 'Eindschermen verwijderen', upgradeThumbnails: 'Miniatuurkwaliteit verbeteren', hideGuestSignInPrompts: 'Inlogmeldingen voor gasten verbergen',
     sponsor: 'Sponsorsegmenten overslaan', intro: 'Introsegmenten overslaan', outro: 'Outrosegmenten overslaan',
     interaction: 'Abonnements- en likeherinneringen overslaan', selfpromo: 'Zelfpromotie overslaan',
     musicOfftopic: 'Muziek/off-topic overslaan', preview: 'Vooruitblik/samenvatting overslaan',

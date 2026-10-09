@@ -65,7 +65,7 @@ function readStorageData(key) {
   return parsed && parsed.data;
 }
 
-function isGuestMode() {
+export function isGuestMode() {
   try {
     const lastIdentity = readStorageData(LAST_IDENTITY_KEY);
     if (lastIdentity) {
