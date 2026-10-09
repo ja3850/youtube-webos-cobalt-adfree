@@ -21,7 +21,11 @@ const defaultConfig = {
   forceHighResVideo: false,
   removeEndscreen: true,
   upgradeThumbnails: false,
-  hideGuestSignInPrompts: true
+  hideGuestSignInPrompts: true,
+  speedResyncOnChange: true,
+  playbackRateSteps: 'standard',
+  rememberPlaybackRate: false,
+  lastPlaybackRate: 1
 };
 
 let localConfig = window.__ytafConfigState;

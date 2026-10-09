@@ -26,7 +26,12 @@ export default {
     subtitleOn: 'Sottotitoli: ATTIVI',
     subtitleOff: 'Sottotitoli: DISATTIVI',
     subtitleUnavailable: 'Sottotitoli non disponibili',
-    openHint: 'Premi [VERDE] per gli extra di YouTube'
+    openHint: 'Premi [VERDE] per gli extra di YouTube',
+    playbackRateSteps: 'Passi di velocità',
+    playbackRateStepsStandard: 'Standard (0,25x)',
+    playbackRateStepsFine: 'Fine (0,1x)',
+    speedResync: 'Risincronizza dopo cambio velocità',
+    rememberPlaybackRate: 'Ricorda la velocità'
   },
   sponsorBlock: {
     sponsor: 'sponsor',

@@ -26,7 +26,12 @@ export default {
     subtitleOn: 'Untertitel: EIN',
     subtitleOff: 'Untertitel: AUS',
     subtitleUnavailable: 'Untertitel nicht verfügbar',
-    openHint: 'Grün drücken für YouTube-Extras'
+    openHint: 'Grün drücken für YouTube-Extras',
+    playbackRateSteps: 'Wiedergabe-Schritte',
+    playbackRateStepsStandard: 'Standard (0,25x)',
+    playbackRateStepsFine: 'Fein (0,1x)',
+    speedResync: 'Wiedergabe nach Tempowechsel neu synchronisieren',
+    rememberPlaybackRate: 'Wiedergabegeschwindigkeit merken'
   },
   sponsorBlock: {
     sponsor: 'Sponsor',

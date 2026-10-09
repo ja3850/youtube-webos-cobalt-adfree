@@ -9,7 +9,12 @@ export default {
     filler: 'Saltar relleno/desvíos', hook: 'Saltar gancho/saludo',
     subtitleOn: 'Subtítulos: ACTIVADOS', subtitleOff: 'Subtítulos: DESACTIVADOS',
     subtitleUnavailable: 'Subtítulos no disponibles',
-    openHint: 'Pulsa [VERDE] para los extras de YouTube'
+    openHint: 'Pulsa [VERDE] para los extras de YouTube',
+    playbackRateSteps: 'Pasos de velocidad',
+    playbackRateStepsStandard: 'Estándar (0,25x)',
+    playbackRateStepsFine: 'Fino (0,1x)',
+    speedResync: 'Resincronizar tras cambiar la velocidad',
+    rememberPlaybackRate: 'Recordar la velocidad'
   },
   sponsorBlock: {
     sponsor: 'patrocinador', intro: 'introducción', outro: 'final', interaction: 'interacción',

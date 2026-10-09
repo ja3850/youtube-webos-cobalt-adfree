@@ -9,6 +9,7 @@ import { configRead, configWrite } from './config.js';
 import { checkboxTools } from './checkboxTools.js';
 import { isGuestMode } from './auto-login.js';
 import { choiceTools } from './choiceTools.js';
+import { getNextPlaybackRate } from './playback-speed.mjs';
 import { text as languageText } from './languages/index.js';
 import { sponsorBlockCategoryColors } from './sponsorblock-categories.js';
 import {
@@ -30,7 +31,6 @@ export function userScriptStartUI() {
   console.info('[ytaf] userScriptStartUI() called');
 
   const ARROW_KEY_CODE = { 37: 'left', 38: 'up', 39: 'right', 40: 'down' };
-  const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
   let lastGreenKeyAt = 0;
   let currentFocusIndex = -1;
   let menuScrollFrame = null;
@@ -86,24 +86,11 @@ export function userScriptStartUI() {
     if (!video) return false;
 
     const currentRate = Number(video.playbackRate) || 1;
-    const currentIndex = PLAYBACK_RATES.findIndex(
-      (rate) => Math.abs(rate - currentRate) < 0.01
+    const nextRate = getNextPlaybackRate(
+      currentRate,
+      direction,
+      configRead('playbackRateSteps')
     );
-    const nearestIndex = PLAYBACK_RATES.reduce(
-      (nearest, rate, index) =>
-        Math.abs(rate - currentRate) < Math.abs(PLAYBACK_RATES[nearest] - currentRate)
-          ? index
-          : nearest,
-      0
-    );
-    const nextIndex = Math.max(
-      0,
-      Math.min(
-        PLAYBACK_RATES.length - 1,
-        (currentIndex === -1 ? nearestIndex : currentIndex) + direction
-      )
-    );
-    const nextRate = PLAYBACK_RATES[nextIndex];
 
     if (nextRate === currentRate) return true;
 
@@ -298,6 +285,34 @@ export function userScriptStartUI() {
       text('shorts'),
       configRead('enableShorts'),
       callbackConfig('enableShorts')
+    )
+  );
+  uiContainer.appendChild(
+    choiceTools.add(
+      '__playback_rate_steps',
+      text('playbackRateSteps'),
+      configRead('playbackRateSteps'),
+      [
+        { value: 'standard', label: text('playbackRateStepsStandard') },
+        { value: 'fine', label: text('playbackRateStepsFine') }
+      ],
+      callbackConfig('playbackRateSteps')
+    )
+  );
+  uiContainer.appendChild(
+    checkboxTools.add(
+      '__speed_resync',
+      text('speedResync'),
+      configRead('speedResyncOnChange'),
+      callbackConfig('speedResyncOnChange')
+    )
+  );
+  uiContainer.appendChild(
+    checkboxTools.add(
+      '__remember_rate',
+      text('rememberPlaybackRate'),
+      configRead('rememberPlaybackRate'),
+      callbackConfig('rememberPlaybackRate')
     )
   );
   uiContainer.appendChild(

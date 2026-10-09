@@ -1,4 +1,5 @@
 import { configRead } from './config.js';
+import { installCapabilityProbeFix } from './playback-speed.js';
 import {
   isBrowseResponse,
   isGuideResponse,
@@ -8,6 +9,9 @@ import { applyJsonLayerFilters } from './json-layer-filters.mjs';
 
 if (!window.__ytafPreloadExecuted) {
   window.__ytafPreloadExecuted = true;
+
+  // Rewrite rate-scaled MediaSource probes as early as possible (idempotent).
+  installCapabilityProbeFix();
 
   if (!window.__ytafShortsResponseFilterInstalled) {
     window.__ytafShortsResponseFilterInstalled = true;

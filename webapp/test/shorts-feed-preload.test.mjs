@@ -14,6 +14,7 @@ function parser(enabled = false, downstream = false) {
   const context = vm.createContext({
     ...filters,
     configRead: () => enabled,
+    installCapabilityProbeFix() {},
     document: { querySelector: () => null },
     window: {},
     console: { info() {}, log() {}, warn() {}, error() {} }

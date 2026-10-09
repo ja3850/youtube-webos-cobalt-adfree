@@ -9,7 +9,12 @@ export default {
     filler: 'Opvulling/uitweidingen overslaan', hook: 'Intro/groet overslaan',
     subtitleOn: 'Ondertitels: AAN', subtitleOff: 'Ondertitels: UIT',
     subtitleUnavailable: 'Ondertitels niet beschikbaar',
-    openHint: 'Druk op [GROEN] voor YouTube-extra’s'
+    openHint: 'Druk op [GROEN] voor YouTube-extra’s',
+    playbackRateSteps: 'Snelheidsstappen',
+    playbackRateStepsStandard: 'Standaard (0,25x)',
+    playbackRateStepsFine: 'Fijn (0,1x)',
+    speedResync: 'Opnieuw synchroniseren na snelheidswijziging',
+    rememberPlaybackRate: 'Afspeelsnelheid onthouden'
   },
   sponsorBlock: {
     sponsor: 'sponsor', intro: 'intro', outro: 'outro', interaction: 'interactie', selfpromo: 'zelfpromotie',
