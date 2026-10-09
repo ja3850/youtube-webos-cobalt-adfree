@@ -7,17 +7,17 @@
       "iconUri": "https://raw.githubusercontent.com/ja3850/youtube-webos-cobalt-adfree/c4-speed-legacy/assets/largeIcon.png",
       "manifest": {
         "id": "youtube.leanback.v4",
-        "version": "2.0.51",
+        "version": "2.0.52",
         "type": "native",
         "title": "YouTube Cobalt AdFree (C4 speed + legacy)",
         "iconUri": "https://raw.githubusercontent.com/ja3850/youtube-webos-cobalt-adfree/c4-speed-legacy/assets/largeIcon.png",
         "sourceUrl": "https://github.com/ja3850/youtube-webos-cobalt-adfree/tree/c4-speed-legacy",
         "rootRequired": false,
-        "ipkUrl": "https://github.com/ja3850/youtube-webos-cobalt-adfree/releases/download/v2.0.51-c4/youtube.leanback.v4_2.0.51_arm.ipk",
+        "ipkUrl": "https://github.com/ja3850/youtube-webos-cobalt-adfree/releases/download/v2.0.52-c4/youtube.leanback.v4_2.0.52_arm.ipk",
         "ipkHash": {
-          "sha256": "7513405a349c035209fbf2d1ed52bde729eef193ca9cedea8c0d46e9148f11ef"
+          "sha256": "8464729f6a46e3cbcbee5e7f90becd2f73c782a52d1ddb2f66e81b96231f85c1"
         },
-        "ipkSize": 19688318
+        "ipkSize": 19690922
       }
     }
   ]
