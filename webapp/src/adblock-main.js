@@ -15,6 +15,7 @@ import { userScriptStartShortsBlockUI } from './shorts-block.js';
 import { userScriptStartSponsorBlock } from './sponsorblock.js';
 import { userScriptStartReturnYouTubeDislike } from './returnyoutubedislike.js';
 import { resetAutoLogin } from './auto-login.js';
+import { userScriptStartPlaybackSpeed } from './playback-speed.js';
 
 console.info('[ytaf] adblock-main.js LOADED, all imports successful');
 
@@ -112,6 +113,12 @@ export async function startUserScript() {
     console.info('[ytaf] UI started');
   } catch (err) {
     console.warn('[ytaf] Failed to start UI:', err);
+  }
+
+  try {
+    userScriptStartPlaybackSpeed();
+  } catch (err) {
+    console.warn('[ytaf] Failed to start playback speed hook:', err);
   }
 
   try {

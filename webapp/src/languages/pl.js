@@ -8,7 +8,12 @@ export default {
     filler: 'Pomiń wypełniacze/dygresje', hook: 'Pomiń wstęp/powitanie',
     subtitleOn: 'Napisy: WŁĄCZONE', subtitleOff: 'Napisy: WYŁĄCZONE',
     subtitleUnavailable: 'Napisy niedostępne',
-    openHint: 'Naciśnij [ZIELONY], aby otworzyć dodatki YouTube'
+    openHint: 'Naciśnij [ZIELONY], aby otworzyć dodatki YouTube',
+    playbackRateSteps: 'Kroki prędkości',
+    playbackRateStepsStandard: 'Standardowe (0,25x)',
+    playbackRateStepsFine: 'Drobne (0,1x)',
+    speedResync: 'Synchronizuj ponownie po zmianie prędkości',
+    rememberPlaybackRate: 'Zapamiętaj prędkość'
   },
   sponsorBlock: {
     sponsor: 'sponsor', intro: 'intro', outro: 'zakończenie', interaction: 'interakcja',

@@ -11,6 +11,7 @@ test('class constructor call site discovers J without invoking the constructor',
   const context = vm.createContext({
     ...filters,
     configRead: () => enabled,
+    installCapabilityProbeFix() {},
     window: {},
     console: { info() {}, log() {}, warn() {}, error() {} }
   });
@@ -47,6 +48,7 @@ for (const failInCaller of [true, false]) {
     const context = vm.createContext({
       ...filters,
       configRead: () => false,
+      installCapabilityProbeFix() {},
       window: {},
       console: { info() {}, log() {}, warn() {}, error: (...args) => logs.push(args) },
       failInCaller

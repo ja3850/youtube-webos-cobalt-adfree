@@ -8,7 +8,12 @@ export default {
     filler: 'Ignorer les digressions', hook: 'Ignorer l’accroche/la salutation',
     subtitleOn: 'Sous-titres : ACTIVÉS', subtitleOff: 'Sous-titres : DÉSACTIVÉS',
     subtitleUnavailable: 'Sous-titres indisponibles',
-    openHint: 'Appuyez sur [VERT] pour les extras YouTube'
+    openHint: 'Appuyez sur [VERT] pour les extras YouTube',
+    playbackRateSteps: 'Pas de vitesse',
+    playbackRateStepsStandard: 'Standard (0,25x)',
+    playbackRateStepsFine: 'Fin (0,1x)',
+    speedResync: 'Resynchroniser après changement de vitesse',
+    rememberPlaybackRate: 'Mémoriser la vitesse'
   },
   sponsorBlock: {
     sponsor: 'sponsor', intro: 'introduction', outro: 'conclusion', interaction: 'interaction',

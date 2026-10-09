@@ -8,7 +8,12 @@ export default {
     filler: 'Pular enrolação/desvios', hook: 'Pular gancho/saudação',
     subtitleOn: 'Legendas: ATIVADAS', subtitleOff: 'Legendas: DESATIVADAS',
     subtitleUnavailable: 'Legendas indisponíveis',
-    openHint: 'Pressione [VERDE] para os extras do YouTube'
+    openHint: 'Pressione [VERDE] para os extras do YouTube',
+    playbackRateSteps: 'Passos de velocidade',
+    playbackRateStepsStandard: 'Padrão (0,25x)',
+    playbackRateStepsFine: 'Fino (0,1x)',
+    speedResync: 'Ressincronizar após mudar a velocidade',
+    rememberPlaybackRate: 'Lembrar a velocidade'
   },
   sponsorBlock: {
     sponsor: 'patrocinador', intro: 'introdução', outro: 'encerramento', interaction: 'interação',

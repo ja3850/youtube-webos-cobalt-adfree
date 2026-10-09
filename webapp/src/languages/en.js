@@ -23,7 +23,12 @@ export default {
     subtitleOn: 'Subtitles: ON',
     subtitleOff: 'Subtitles: OFF',
     subtitleUnavailable: 'Subtitles unavailable',
-    openHint: 'Press [GREEN] for YouTube extras'
+    openHint: 'Press [GREEN] for YouTube extras',
+    playbackRateSteps: 'Playback speed steps',
+    playbackRateStepsStandard: 'Standard (0.25x)',
+    playbackRateStepsFine: 'Fine (0.1x)',
+    speedResync: 'Re-sync playback after speed change',
+    rememberPlaybackRate: 'Remember playback speed'
   },
   sponsorBlock: {
     sponsor: 'sponsor',
