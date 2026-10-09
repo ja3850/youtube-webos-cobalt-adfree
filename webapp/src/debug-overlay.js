@@ -56,6 +56,35 @@ function getDescriptionDebugText(ryd) {
   }
 }
 
+let lastDiagTime = null;
+
+function getSpeedDiagText() {
+  const video = document.querySelector('video');
+  const lines = ['--- SPEED DIAG ---'];
+  if (video) {
+    let ahead = 'n/a';
+    try {
+      const b = video.buffered;
+      if (b && b.length) ahead = (b.end(b.length - 1) - video.currentTime).toFixed(1);
+    } catch (e) {
+      // ignore
+    }
+    const ct = video.currentTime;
+    const progress = lastDiagTime === null ? 'n/a' : ct !== lastDiagTime ? 'YES' : 'NO';
+    lastDiagTime = ct;
+    lines.push(
+      `rate=${video.playbackRate} t=${ct.toFixed(1)} rs=${video.readyState} paused=${video.paused ? 1 : 0}`,
+      `buf ahead=${ahead}s progress=${progress}`
+    );
+  } else {
+    lines.push('video not found');
+  }
+  const log = window.__ytafSpeedLog || [];
+  const t0 = log.length ? log[0].t : 0;
+  log.slice(-14).forEach((e) => lines.push(`+${e.t - t0} ${compact(e.msg, 110)}`));
+  return lines;
+}
+
 function buildDebugText() {
   const sponsorBlock = window.sponsorblock;
   const ryd = window.returnYoutubeDislike;
@@ -87,7 +116,8 @@ function buildDebugText() {
     row('RYD error', ryd?.fetchError),
     row('RYD body', ryd?.lastBody, 160),
     ...getDescriptionDebugText(ryd),
-    row('location', window.location.href, 180)
+    row('location', window.location.href, 180),
+    ...getSpeedDiagText()
   ].join('\n');
 }
 

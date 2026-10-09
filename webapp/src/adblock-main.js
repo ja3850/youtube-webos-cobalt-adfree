@@ -91,6 +91,7 @@ function startDebugOverlay() {
 
   try {
     require('./debug-overlay.js').userScriptStartDebugOverlay();
+    require('./speed-diagnostics.js').startSpeedDiagnostics();
     console.info('[ytaf] Debug overlay started');
   } catch (err) {
     console.warn('[ytaf] Failed to start debug overlay:', err);
