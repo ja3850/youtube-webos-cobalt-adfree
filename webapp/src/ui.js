@@ -7,6 +7,7 @@ import './ui.css';
 
 import { configRead, configWrite } from './config.js';
 import { checkboxTools } from './checkboxTools.js';
+import { isGuestMode } from './auto-login.js';
 import { choiceTools } from './choiceTools.js';
 import { text as languageText } from './languages/index.js';
 import { sponsorBlockCategoryColors } from './sponsorblock-categories.js';
@@ -323,6 +324,38 @@ export function userScriptStartUI() {
       callbackConfig('forceHighResVideo')
     )
   );
+  uiContainer.appendChild(
+    checkboxTools.add(
+      '__remove_endscreen',
+      text('removeEndscreen'),
+      configRead('removeEndscreen'),
+      callbackConfig('removeEndscreen')
+    )
+  );
+  uiContainer.appendChild(
+    checkboxTools.add(
+      '__upgrade_thumbnails',
+      text('upgradeThumbnails'),
+      configRead('upgradeThumbnails'),
+      callbackConfig('upgradeThumbnails')
+    )
+  );
+  let guestMode = false;
+  try {
+    guestMode = isGuestMode();
+  } catch (err) {
+    guestMode = false;
+  }
+  if (guestMode) {
+    uiContainer.appendChild(
+      checkboxTools.add(
+        '__hide_guest_prompts',
+        text('hideGuestSignInPrompts'),
+        configRead('hideGuestSignInPrompts'),
+        callbackConfig('hideGuestSignInPrompts')
+      )
+    );
+  }
   uiContainer.appendChild(
     checkboxTools.add(
       '__sponsorblock',

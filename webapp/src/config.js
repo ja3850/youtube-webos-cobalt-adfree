@@ -18,7 +18,10 @@ const defaultConfig = {
   enableShorts: true,
   showClock: false,
   hideLogo: false,
-  forceHighResVideo: false
+  forceHighResVideo: false,
+  removeEndscreen: true,
+  upgradeThumbnails: false,
+  hideGuestSignInPrompts: true
 };
 
 let localConfig = window.__ytafConfigState;

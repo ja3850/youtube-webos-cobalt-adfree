@@ -4,6 +4,7 @@ import {
   isGuideResponse,
   stripShortsFromBrowseResponse
 } from './shorts-response-filter.mjs';
+import { applyJsonLayerFilters } from './json-layer-filters.mjs';
 
 if (!window.__ytafPreloadExecuted) {
   window.__ytafPreloadExecuted = true;
@@ -220,6 +221,18 @@ if (!window.__ytafPreloadExecuted) {
           stripShortsFromBrowseResponse(value)
         ) {
           console.log('[ytaf preload] Shorts blocker removed response entries');
+        }
+
+        try {
+          applyJsonLayerFilters(value, {
+            removeEndscreen: Boolean(configRead('removeEndscreen')),
+            upgradeThumbnails: Boolean(configRead('upgradeThumbnails')),
+            hideGuestSignInPrompts: Boolean(
+              configRead('hideGuestSignInPrompts')
+            )
+          });
+        } catch (error) {
+          console.warn('[ytaf preload] JSON layer filters failed', error);
         }
 
         return value;
