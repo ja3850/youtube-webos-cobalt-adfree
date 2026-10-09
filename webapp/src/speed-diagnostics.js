@@ -45,7 +45,7 @@ function wrapIsTypeSupported() {
       const result = orig.apply(this, arguments);
       try {
         const t = String(type);
-        if ((t.indexOf('framerate=') >= 0 || t.indexOf('bitrate=') >= 0) && currentRate() !== 1) {
+        if (!result && (t.indexOf('framerate=') >= 0 || t.indexOf('bitrate=') >= 0) && currentRate() !== 1) {
           speedLog(`ITS ${t.substring(0, 90)} ${result ? 'T' : 'F'}`);
         }
       } catch (e) {
