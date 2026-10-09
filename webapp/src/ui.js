@@ -301,6 +301,30 @@ export function userScriptStartUI() {
   );
   uiContainer.appendChild(
     checkboxTools.add(
+      '__show_clock',
+      text('showClock'),
+      configRead('showClock'),
+      callbackConfig('showClock')
+    )
+  );
+  uiContainer.appendChild(
+    checkboxTools.add(
+      '__hide_logo',
+      text('hideLogo'),
+      configRead('hideLogo'),
+      callbackConfig('hideLogo')
+    )
+  );
+  uiContainer.appendChild(
+    checkboxTools.add(
+      '__force_high_res',
+      text('forceHighRes'),
+      configRead('forceHighResVideo'),
+      callbackConfig('forceHighResVideo')
+    )
+  );
+  uiContainer.appendChild(
+    checkboxTools.add(
       '__sponsorblock',
       text('sponsorblock'),
       configRead('enableSponsorBlock'),

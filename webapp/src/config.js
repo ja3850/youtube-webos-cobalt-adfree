@@ -15,7 +15,10 @@ const defaultConfig = {
   enableSponsorBlockHook: false,
   enableAutoLogin: true,
   enableReturnYouTubeDislike: true,
-  enableShorts: true
+  enableShorts: true,
+  showClock: false,
+  hideLogo: false,
+  forceHighResVideo: false
 };
 
 let localConfig = window.__ytafConfigState;
