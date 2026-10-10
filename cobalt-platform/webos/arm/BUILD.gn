@@ -12,6 +12,7 @@ static_library("starboard_platform") {
     "starfish_av_components.h",
     "starfish_av_session_state.h",
     "starfish_audio_timing.h",
+    "starfish_load_options.h",
     "starfish_video_configuration.h",
     "starfish_video_decoder.cc",
     "starfish_video_decoder.h",

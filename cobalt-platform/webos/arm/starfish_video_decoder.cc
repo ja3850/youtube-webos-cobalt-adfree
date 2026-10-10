@@ -15,6 +15,7 @@
 #include "starboard/common/string.h"
 #include "starboard/shared/starboard/media/mime_type.h"
 #include "starboard/webos/arm/application_sdl.h"
+#include "starboard/webos/arm/starfish_load_options.h"
 
 namespace starboard {
 namespace shared {
@@ -386,6 +387,8 @@ void StarfishVideoDecoder::InitializePipeline(
                << " with adaptive maximum " << capabilities.width << "x"
                << capabilities.height << "@" << capabilities.frame_rate
                << " using window " << window_id;
+  payload = WithExtraLoadOptions(payload);
+  WriteDiag("load " + payload);
   media_api_->notifyForeground();
   if (!media_api_->Load(payload.c_str(), &StarfishVideoDecoder::PlayerCallback,
                         this)) {
