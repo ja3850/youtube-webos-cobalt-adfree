@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include <starfish-media-pipeline/StarfishMediaAPIs.h>
 
@@ -55,20 +56,24 @@ class StarfishVideoDecoder
   void WriteEndOfStreamOnDecoderThread();
   void ResetOnDecoderThread();
   void SignalUnloadCompleted();
-  // Linear map between media and pipeline PTS (microseconds) with slope
-  // 1/rate, pinned at an anchor point that maps media -> pipeline.
+  // Linear map from media to pipeline PTS (microseconds) that applies from
+  // its anchor onwards; pipeline_per_media is 1/rate outside catch-up spans.
   struct PtsSegment {
     int64_t media_anchor_us;
     int64_t pipeline_anchor_us;
-    int rate_millionths;
+    double pipeline_per_media;
   };
 
   void LatchSpeedModeOnDecoderThread(const char* reason);
   void RetimePtsOnDecoderThread();
   int64_t ToPipelinePtsUs(int64_t media_pts_us);
   int64_t ToMediaPtsUs(int64_t pipeline_pts_us) const;
+  int64_t MapToPipelineLocked(int64_t media_pts_us) const;
+  int64_t MapToMediaLocked(int64_t pipeline_pts_us) const;
+  bool HoldForFeedLead(const scoped_refptr<InputBuffer>& input_buffer);
+  void RetryAfterFeedLeadWait();
   void WriteDiag(const std::string& line);
-  void OnFrameReadyDiag(SbTime frame_time);
+  void OnFrameReadyDiag(SbTime frame_time, int64_t pipeline_pts_us);
   void ReportError(const std::string& message);
   void HandlePlayerEvent(int type, int64_t num_value, const char* str_value);
   static void PlayerCallback(int type,
@@ -95,9 +100,13 @@ class StarfishVideoDecoder
   bool pause_issued_ = false;
   bool startup_play_accepted_ = false;
   double applied_playback_rate_ = -1.0;
-  // 'm' native rate with audioOutput=false, 'n' native rate with
-  // audioOutput=true, 'p' PTS rescaling; see ReadSpeedMode().
-  char speed_mode_ = 'm';
+  // 'p' PTS rescaling, 'n' native rate with audioOutput=true, 'm' native
+  // rate with audioOutput=false; see ReadSpeedMode().
+  char speed_mode_ = 'p';
+  // Maximum pipeline-time lead of fed video over the last shown frame in 'p'
+  // mode (0 = unlimited), so a rate change reaches the screen quickly.
+  int64_t feed_lead_limit_us_ = 0;
+  bool feed_lead_retry_scheduled_ = false;
   std::atomic<SbTime> seek_to_time_{0};
   std::atomic<bool> pause_requested_{false};
   // Keep this 32-bit so the ARMv7 build does not require libatomic merely to
@@ -106,14 +115,18 @@ class StarfishVideoDecoder
   // Last positive rate Cobalt requested; survives the rate-0 seek preroll.
   std::atomic<int> requested_rate_millionths_{1000000};
   // In 'p' mode the pipeline runs at 1x and video PTS are rescaled instead.
-  // A rate change starts a new segment at the last fed PTS so the pipeline
-  // timeline stays continuous; frames already queued still map through the
-  // previous segment. Written on the decoder thread, read by FRAMEREADY.
+  // A rate change appends segments at the last fed PTS so the pipeline
+  // timeline stays continuous and monotonic; newer segments supersede older
+  // ones from their anchor on. Written on the decoder thread, read by
+  // FRAMEREADY.
   mutable Mutex pts_mutex_;
-  PtsSegment pts_segment_{0, 0, 1000000};
-  PtsSegment previous_pts_segment_{0, 0, 1000000};
-  bool has_previous_pts_segment_ = false;
+  std::vector<PtsSegment> pts_segments_{PtsSegment{0, 0, 1.0}};
+  int pts_rate_millionths_ = 1000000;
   int64_t last_fed_media_pts_us_ = -1;
+  std::atomic<int64_t> last_fed_pipeline_pts_us_{-1};
+  // Latest FRAMEREADY, in both domains; -1 until the first one after a seek.
+  std::atomic<int64_t> last_frame_media_pts_us_{-1};
+  std::atomic<int64_t> last_frame_pipeline_pts_us_{-1};
   // A/V sync diagnostics, enabled by /tmp/ytaf-av-diag.enable.
   Mutex diag_mutex_;
   FILE* diag_file_ = nullptr;

@@ -22,7 +22,7 @@ const defaultConfig = {
   removeEndscreen: true,
   upgradeThumbnails: false,
   hideGuestSignInPrompts: true,
-  speedResyncOnChange: true,
+  speedResyncOnChange: false,
   playbackRateSteps: 'standard',
   rememberPlaybackRate: false,
   lastPlaybackRate: 1
