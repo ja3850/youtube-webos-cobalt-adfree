@@ -9,7 +9,10 @@ namespace starboard {
 namespace shared {
 namespace webos {
 
-// Eligible Opus streams use the shared native backend by default. Explicit
+// C4 fork: the existing (legacy) backend is the default, because the shared
+// backend stalls at playback rates other than 1 on webOS 25 while the legacy
+// backend supports them through PTS rescaling. A marker/env value of 1-3
+// opts back into the shared backend. Explicit
 // values retain the diagnostic modes and provide a rollback to the existing
 // backend (0). Set the override before starting Cobalt; the first query latches
 // it for this process so new players cannot mix two backend policies.
@@ -32,7 +35,7 @@ inline int ReadConfiguredSharedAvBackendMode() {
 
   FILE* marker = std::fopen("/tmp/ytaf-shared-av.enable", "r");
   if (!marker) {
-    return 3;
+    return 0;
   }
   const int marker_value = std::fgetc(marker);
   std::fclose(marker);

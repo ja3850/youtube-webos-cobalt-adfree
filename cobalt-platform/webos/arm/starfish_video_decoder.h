@@ -54,6 +54,9 @@ class StarfishVideoDecoder
   void WriteEndOfStreamOnDecoderThread();
   void ResetOnDecoderThread();
   void SignalUnloadCompleted();
+  void LatchPtsScaleOnDecoderThread(const char* reason);
+  int64_t ToPipelinePtsUs(int64_t media_pts_us) const;
+  int64_t ToMediaPtsUs(int64_t pipeline_pts_us) const;
   void ReportError(const std::string& message);
   void HandlePlayerEvent(int type, int64_t num_value, const char* str_value);
   static void PlayerCallback(int type,
@@ -80,11 +83,19 @@ class StarfishVideoDecoder
   bool pause_issued_ = false;
   bool startup_play_accepted_ = false;
   double applied_playback_rate_ = -1.0;
+  bool pts_scale_enabled_ = true;
   std::atomic<SbTime> seek_to_time_{0};
   std::atomic<bool> pause_requested_{false};
   // Keep this 32-bit so the ARMv7 build does not require libatomic merely to
   // communicate a double between Cobalt's worker and the decoder thread.
   std::atomic<int> playback_rate_millionths_{1000000};
+  // Starfish freezes or ignores SetPlayRate() for rates other than 1 on
+  // webOS 25, so the pipeline always runs at 1x and playback speed is applied
+  // by rescaling video PTS around the latest seek target instead. Latched on
+  // the decoder thread at load and on every seek; read by firmware callbacks.
+  std::atomic<int> requested_rate_millionths_{1000000};
+  std::atomic<int> pts_rate_millionths_{1000000};
+  std::atomic<SbTime> pts_anchor_us_{0};
   std::atomic<bool> preroll_frame_sent_{false};
   std::atomic<bool> first_frame_presented_{false};
   std::atomic<bool> load_completed_{false};

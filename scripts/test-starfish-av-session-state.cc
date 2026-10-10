@@ -49,7 +49,7 @@ void TestExperimentMode() {
   assert(::setenv("YTAF_SHARED_AV", "invalid", 1) == 0);
   assert(ReadConfiguredSharedAvBackendMode() == 0);
   assert(::unsetenv("YTAF_SHARED_AV") == 0);
-  // No marker in a fresh installation selects the full shared backend.
+  // No marker in a fresh installation selects the legacy backend (C4 fork).
   // Marker overrides are exercised on the TV because this host may have an
   // existing marker belonging to another local test.
 }
