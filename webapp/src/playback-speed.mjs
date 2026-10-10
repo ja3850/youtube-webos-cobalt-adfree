@@ -4,6 +4,16 @@ export const MIN_RATE = 0.1;
 export const MAX_RATE = 2;
 export const MAX_NATIVE_FRAMERATE = 60;
 const FRAMERATE_TOLERANCE = 0.5;
+// Hardware decode budget (pixels per second): 4K at 60 fps.
+export const MAX_DECODE_PIXEL_RATE = 3840 * 2160 * 60;
+
+function readDimension(type, name) {
+  const m = new RegExp(
+    ';\\s*' + name + '\\s*=\\s*"?([0-9]+(?:\\.[0-9]+)?)"?',
+    'i'
+  ).exec(type);
+  return m ? Number(m[1]) : NaN;
+}
 
 export const STANDARD_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 export const FINE_RATES = [
@@ -51,6 +61,9 @@ export function rewriteMediaMimeType(type, playbackRate) {
 
   const rate = Number(playbackRate);
   let changed = false;
+  const width = readDimension(type, 'width');
+  const height = readDimension(type, 'height');
+  const hasDims = Number.isFinite(width) && Number.isFinite(height);
 
   const out = type.replace(
     /(;\s*)(bitrate|framerate)\s*=\s*("?)([0-9]+(?:\.[0-9]+)?)\3/gi,
@@ -69,7 +82,8 @@ export function rewriteMediaMimeType(type, playbackRate) {
         value > MAX_NATIVE_FRAMERATE &&
         Number.isFinite(rate) &&
         rate > 1 &&
-        value / rate <= MAX_NATIVE_FRAMERATE + FRAMERATE_TOLERANCE
+        value / rate <= MAX_NATIVE_FRAMERATE + FRAMERATE_TOLERANCE &&
+        !(hasDims && width * height * value > MAX_DECODE_PIXEL_RATE)
       ) {
         changed = true;
         return sep + name + '=' + quote + Math.round(value / rate) + quote;

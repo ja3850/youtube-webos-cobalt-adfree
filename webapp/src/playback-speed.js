@@ -51,10 +51,8 @@ export function installCapabilityProbeFix() {
 
 const RESYNC_DEBOUNCE_MS = 300;
 const RESYNC_SELF_IGNORE_MS = 1500;
-// Upper bound for one pause -> seek -> play cycle before the latch is released
-// and playback is resumed regardless.
+// Upper bound before the resync latch is released without a 'seeked' event.
 const RESYNC_SEEK_TIMEOUT_MS = 4000;
-const RESYNC_RESUME_DELAY_MS = 150;
 
 function speedLog(msg) {
   try {
@@ -77,12 +75,10 @@ export function userScriptStartPlaybackSpeed() {
   let lastResyncAt = 0;
   let lastResyncRate = 0;
   let appliedForSource = null;
+  const resyncedSources = new Map();
 
-  // The Starfish pipeline freezes when SetPlayRate reaches a session that is
-  // already playing, but accepts a new rate applied before Play() (as on a
-  // fresh video start). Recreate that order: pause, seek to the current
-  // position so the native session is rebuilt while paused (it applies the
-  // stored rate once loaded), then resume after the seek completes.
+  // Changing playbackRate on a playing Starfish video freezes the hardware
+  // pipeline. A single same-position seek shortly after recovers it.
   function doResync(video) {
     resyncTimer = null;
     if (!configRead('speedResyncOnChange')) return;
@@ -95,41 +91,47 @@ export function userScriptStartPlaybackSpeed() {
     resyncing = true;
     lastResyncAt = Date.now();
     lastResyncRate = Number(video.playbackRate);
-    let finished = false;
+    resyncedSources.set(sourceOf(video), lastResyncRate);
     let fallbackTimer = null;
 
-    const finish = (reason) => {
-      if (finished) return;
-      finished = true;
+    const release = (reason) => {
       video.removeEventListener('seeked', onSeeked, true);
       if (fallbackTimer) clearTimeout(fallbackTimer);
-      setTimeout(() => {
-        try {
-          const played = video.play();
-          if (played && typeof played.catch === 'function') {
-            played.catch((err) => speedLog('resync play() rejected ' + err));
-          }
-        } catch (err) {
-          speedLog('resync play() threw ' + err);
-        }
-        speedLog('resync resume (' + reason + ')');
-        lastResyncAt = Date.now();
-        resyncing = false;
-      }, RESYNC_RESUME_DELAY_MS);
+      lastResyncAt = Date.now();
+      resyncing = false;
+      speedLog('resync done (' + reason + ')');
     };
-    const onSeeked = () => finish('seeked');
+    const onSeeked = () => release('seeked');
 
     try {
-      video.pause();
-      const target = Math.max(0, Number(video.currentTime) - 0.05);
       video.addEventListener('seeked', onSeeked, true);
-      fallbackTimer = setTimeout(() => finish('timeout'), RESYNC_SEEK_TIMEOUT_MS);
-      speedLog('resync pause+seek r=' + lastResyncRate + ' to=' + target.toFixed(2));
-      video.currentTime = target;
+      fallbackTimer = setTimeout(() => release('timeout'), RESYNC_SEEK_TIMEOUT_MS);
+      speedLog('resync seek r=' + lastResyncRate);
+      video.currentTime = video.currentTime;
     } catch (err) {
       speedLog('resync failed ' + err);
-      finish('error');
+      release('error');
     }
+  }
+
+  function sourceOf(video) {
+    return video.currentSrc || video.src || '';
+  }
+
+  // A video that starts at rate != 1 freezes as well (readyState < 2 skips
+  // the ratechange resync), so resync once per source+rate on 'playing'.
+  function onPlaying(evt) {
+    const video = evt.target;
+    if (!video || video.tagName !== 'VIDEO') return;
+    if (!configRead('speedResyncOnChange')) return;
+    if (resyncing) return;
+    const rate = Number(video.playbackRate);
+    if (!(Math.abs(rate - 1) > 0.001)) return;
+    const source = sourceOf(video);
+    if (resyncedSources.get(source) === rate) return;
+    if (resyncTimer) clearTimeout(resyncTimer);
+    speedLog('start-of-playback resync scheduled r=' + rate);
+    resyncTimer = setTimeout(() => doResync(video), RESYNC_DEBOUNCE_MS);
   }
 
   function onRateChange(evt) {
@@ -180,5 +182,6 @@ export function userScriptStartPlaybackSpeed() {
 
   // Media events do not bubble; capture on document covers replaced <video>s.
   document.addEventListener('ratechange', onRateChange, true);
+  document.addEventListener('playing', onPlaying, true);
   document.addEventListener('loadedmetadata', applyRememberedRate, true);
 }

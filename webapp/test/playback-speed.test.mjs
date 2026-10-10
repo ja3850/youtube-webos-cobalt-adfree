@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   getNextPlaybackRate,
   getRateSteps,
+  MAX_DECODE_PIXEL_RATE,
   rewriteMediaMimeType as rw,
   shouldResyncOnRateChange
 } from '../src/playback-speed.mjs';
@@ -86,4 +87,28 @@ test('resync guard', () => {
   assert.equal(shouldResyncOnRateChange({ ...ok, readyState: 1 }), false);
   assert.equal(shouldResyncOnRateChange({ ...ok, ended: true }), false);
   assert.equal(shouldResyncOnRateChange(null), false);
+});
+
+test('framerate rewrite respects decode budget', () => {
+  assert.equal(MAX_DECODE_PIXEL_RATE, 3840 * 2160 * 60);
+  const t4k = vp9('width=3840; height=2160; framerate=90');
+  assert.equal(rw(t4k, 1.5), t4k);
+  assert.equal(
+    rw(vp9('width=2560; height=1440; framerate=90'), 1.5),
+    vp9('width=2560; height=1440; framerate=60')
+  );
+  assert.equal(
+    rw(vp9('width=1920; height=1080; framerate=120'), 2),
+    vp9('width=1920; height=1080; framerate=60')
+  );
+  assert.equal(
+    rw(vp9('framerate=90; width=2560; height=1440'), 1.5),
+    vp9('framerate=60; width=2560; height=1440')
+  );
+  const q = vp9('framerate="90"; width="3840"; height="2160"');
+  assert.equal(rw(q, 1.5), q);
+  assert.equal(
+    rw(vp9('framerate="90"; width="2560"; height="1440"'), 1.5),
+    vp9('framerate="60"; width="2560"; height="1440"')
+  );
 });
