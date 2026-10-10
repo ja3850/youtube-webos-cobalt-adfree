@@ -1,6 +1,7 @@
 #include "starboard/webos/arm/starfish_video_decoder.h"
 
 #include <inttypes.h>
+#include <time.h>
 
 #include <algorithm>
 #include <cmath>
@@ -111,17 +112,40 @@ void AppendJsonInteger(std::ostringstream* stream,
   *has_value = true;
 }
 
-// PTS rescaling is on by default. YTAF_PTS_SCALE=0 or a '0' in
-// /tmp/ytaf-pts-scale.enable restores native SetPlayRate() for comparison;
-// read on every pipeline load/seek so it can be flipped without a restart.
-bool PtsScaleEnabled() {
-  const char* value = std::getenv("YTAF_PTS_SCALE");
-  if (value) return std::strcmp(value, "0") != 0;
-  FILE* marker = std::fopen("/tmp/ytaf-pts-scale.enable", "r");
-  if (!marker) return true;
-  const int marker_value = std::fgetc(marker);
+// Playback speed strategy, read on every pipeline load and seek so it can be
+// switched without restarting the app:
+//  'm' (default) native SetPlayRate() with audioOutput=false for rates other
+//      than 1, which is what LG's own media pipeline sends;
+//  'n' native SetPlayRate() with audioOutput=true (the upstream behaviour);
+//  'p' the pipeline stays at 1x and video PTS are rescaled instead.
+// YTAF_SPEED_MODE or the first byte of /tmp/ytaf-speed-mode selects one.
+char ReadSpeedMode() {
+  int mode = EOF;
+  const char* value = std::getenv("YTAF_SPEED_MODE");
+  if (value && *value) {
+    mode = value[0];
+  } else if (FILE* marker = std::fopen("/tmp/ytaf-speed-mode", "r")) {
+    mode = std::fgetc(marker);
+    std::fclose(marker);
+  }
+  return mode == 'n' || mode == 'p' ? static_cast<char>(mode) : 'm';
+}
+
+bool DiagEnabled() {
+  FILE* marker = std::fopen("/tmp/ytaf-av-diag.enable", "r");
+  if (!marker) return false;
   std::fclose(marker);
-  return marker_value != '0';
+  return true;
+}
+
+int64_t WallClockMs() {
+  struct timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  return static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
+}
+
+int ClampRateMillionths(int rate) {
+  return std::max(100000, std::min(4000000, rate));
 }
 
 std::string BuildHdrInfoPayload(const SbMediaColorMetadata& metadata) {
@@ -225,6 +249,13 @@ StarfishVideoDecoder::~StarfishVideoDecoder() {
     decoder_thread_.reset();
   }
   CancelPendingJobs();
+  {
+    ScopedLock lock(diag_mutex_);
+    if (diag_file_) {
+      std::fclose(diag_file_);
+      diag_file_ = nullptr;
+    }
+  }
   if (exported_window_acquired_) {
     ApplicationSdl::Get()->ReleaseExportedVideoWindow();
     exported_window_acquired_ = false;
@@ -303,7 +334,7 @@ void StarfishVideoDecoder::InitializePipeline(
     return;
   }
 
-  LatchPtsScaleOnDecoderThread("load");
+  LatchSpeedModeOnDecoderThread("load");
   const int64_t target_pts_ns = seek_to_time_.load() * 1000;
   const AdaptiveVideoCapabilities capabilities =
       GetAdaptiveVideoCapabilities(codec_, sample_info);
@@ -390,11 +421,12 @@ void StarfishVideoDecoder::FeedBuffer(
 
   const uintptr_t address =
       reinterpret_cast<uintptr_t>(input_buffer->data());
+  const int64_t pipeline_pts_us =
+      ToPipelinePtsUs(static_cast<int64_t>(input_buffer->timestamp()));
   std::string feed_payload = FormatString(
       "{\"bufferAddr\":\"0x%" PRIxPTR "\",\"bufferSize\":%d,"
       "\"pts\":%" PRId64 ",\"esData\":1}",
-      address, input_buffer->size(),
-      ToPipelinePtsUs(static_cast<int64_t>(input_buffer->timestamp())) * 1000);
+      address, input_buffer->size(), pipeline_pts_us * 1000);
   std::string result = media_api_->Feed(feed_payload.c_str());
   if (result.find("Ok") != std::string::npos) {
     pending_buffer_ = nullptr;
@@ -443,6 +475,8 @@ void StarfishVideoDecoder::EnsurePlayingOnDecoderThread(const char* reason,
   const bool accepted = media_api_->Play();
   SB_LOG(INFO) << "Starfish Play() after " << reason << " -> "
                << (accepted ? "accepted" : "refused; will retry");
+  WriteDiag(FormatString("play after %s %s", reason,
+                         accepted ? "accepted" : "refused"));
   if (accepted) {
     play_issued_ = true;
     pause_issued_ = false;
@@ -457,21 +491,29 @@ void StarfishVideoDecoder::ApplyPlaybackStateOnDecoderThread() {
 
   const double playback_rate =
       playback_rate_millionths_.load() / 1000000.0;
-  // With PTS rescaling the pipeline itself always runs at 1x; only the
-  // (well tested) 1x SetPlayRate is ever sent.
-  const double native_rate = pts_scale_enabled_ ? 1.0 : playback_rate;
+  if (speed_mode_ == 'p' && playback_rate > 0.0) {
+    RetimePtsOnDecoderThread();
+  }
+  // In 'p' mode the pipeline itself always runs at 1x.
+  const double native_rate = speed_mode_ == 'p' ? 1.0 : playback_rate;
   if (playback_rate > 0.0 &&
       std::fabs(native_rate - applied_playback_rate_) > 0.0001) {
-    // webOS uses audioOutput=false for muted trick play.  Even though Cobalt
-    // renders audio separately, true keeps Starfish in its smooth A/V pacing
-    // mode for the normal 0.1x-2x playback range.
-    const bool smooth_playback = native_rate >= 0.1 && native_rate <= 2.0;
+    // On webOS 25, rates other than 1 with audioOutput=true freeze or are
+    // ignored. LG's own browser sends audioOutput=false for them and its video
+    // follows the rate; this pipeline is video-only (Cobalt renders the
+    // audio), so muting Starfish costs nothing.
+    const bool normal_rate = std::fabs(native_rate - 1.0) < 0.0001;
+    const bool audio_output =
+        speed_mode_ == 'n' ? native_rate >= 0.1 && native_rate <= 2.0
+                           : normal_rate;
     const std::string payload = FormatString(
         "{\"playRate\":%.6g,\"audioOutput\":%s}", native_rate,
-        smooth_playback ? "true" : "false");
+        audio_output ? "true" : "false");
     const bool accepted = media_api_->SetPlayRate(payload.c_str());
     SB_LOG(INFO) << "Starfish SetPlayRate(" << native_rate << ") -> "
                  << (accepted ? "accepted" : "refused");
+    WriteDiag(FormatString("setplayrate %s %s", payload.c_str(),
+                           accepted ? "accepted" : "refused"));
     if (accepted) {
       applied_playback_rate_ = native_rate;
     }
@@ -486,6 +528,7 @@ void StarfishVideoDecoder::ApplyPlaybackStateOnDecoderThread() {
       const bool accepted = media_api_->Pause();
       SB_LOG(INFO) << "Starfish Pause() -> "
                    << (accepted ? "accepted" : "refused");
+      WriteDiag(accepted ? "pause accepted" : "pause refused");
       if (accepted) {
         pause_issued_ = true;
         play_issued_ = false;
@@ -558,7 +601,7 @@ void StarfishVideoDecoder::ResetOnDecoderThread() {
   // queue, and setTimeToDecode() starts a fresh BUFFERSTREAM segment at the
   // requested nanosecond PTS.
   reset_in_progress_.store(true);
-  LatchPtsScaleOnDecoderThread("seek");
+  LatchSpeedModeOnDecoderThread("seek");
   const int64_t target_pts_ns = seek_to_time_.load() * 1000;
   const bool flushed = media_api_->flush();
   const std::string time_payload =
@@ -595,38 +638,138 @@ void StarfishVideoDecoder::ResetOnDecoderThread() {
   reset_in_progress_.store(false);
 }
 
-void StarfishVideoDecoder::LatchPtsScaleOnDecoderThread(const char* reason) {
+void StarfishVideoDecoder::LatchSpeedModeOnDecoderThread(const char* reason) {
   SB_DCHECK(decoder_thread_->BelongsToCurrentThread());
-  pts_scale_enabled_ = PtsScaleEnabled();
-  const int rate = pts_scale_enabled_
-                       ? std::max(100000, std::min(4000000,
-                             requested_rate_millionths_.load()))
+  speed_mode_ = ReadSpeedMode();
+  const int rate = speed_mode_ == 'p'
+                       ? ClampRateMillionths(requested_rate_millionths_.load())
                        : 1000000;
-  // The anchor maps to itself, so ptsToDecode/setTimeToDecode and Cobalt's
-  // seek target stay in the same domain; the timeline is only compressed or
-  // stretched after it.
-  pts_anchor_us_.store(seek_to_time_.load());
-  pts_rate_millionths_.store(rate);
-  SB_LOG(INFO) << "Starfish PTS scale latched on " << reason << ": rate="
-               << rate / 1000000.0 << " anchor=" << pts_anchor_us_.load();
+  // The seek target maps to itself, so ptsToDecode/setTimeToDecode and
+  // Cobalt's seek target stay in the same domain.
+  const SbTime anchor = seek_to_time_.load();
+  {
+    ScopedLock lock(pts_mutex_);
+    pts_segment_ = {anchor, anchor, rate};
+    has_previous_pts_segment_ = false;
+    last_fed_media_pts_us_ = -1;
+  }
+  {
+    ScopedLock lock(diag_mutex_);
+    if (!diag_file_ && DiagEnabled()) {
+      diag_file_ = std::fopen("/tmp/ytaf-av.log", "a");
+    }
+  }
+  SB_LOG(INFO) << "Starfish speed mode " << speed_mode_ << " latched on "
+               << reason << ": pts rate=" << rate / 1000000.0
+               << " anchor=" << anchor;
+  WriteDiag(FormatString("latch %s mode=%c target=%" PRId64 " req_rate=%d",
+                         reason, speed_mode_, static_cast<int64_t>(anchor),
+                         requested_rate_millionths_.load()));
 }
 
-int64_t StarfishVideoDecoder::ToPipelinePtsUs(int64_t media_pts_us) const {
-  const int rate = pts_rate_millionths_.load();
-  if (rate == 1000000) return media_pts_us;
-  const int64_t anchor = pts_anchor_us_.load();
-  return anchor + static_cast<int64_t>(std::llround(
-                      static_cast<double>(media_pts_us - anchor) * 1000000.0 /
-                      rate));
+void StarfishVideoDecoder::RetimePtsOnDecoderThread() {
+  SB_DCHECK(decoder_thread_->BelongsToCurrentThread());
+  const int rate = ClampRateMillionths(requested_rate_millionths_.load());
+  int64_t media_anchor;
+  int64_t pipeline_anchor;
+  {
+    ScopedLock lock(pts_mutex_);
+    if (rate == pts_segment_.rate_millionths) {
+      return;
+    }
+    if (last_fed_media_pts_us_ < 0) {
+      // Nothing fed since the load/seek anchor; just change the slope.
+      pts_segment_.rate_millionths = rate;
+    } else {
+      previous_pts_segment_ = pts_segment_;
+      has_previous_pts_segment_ = true;
+      const PtsSegment& old = previous_pts_segment_;
+      pts_segment_ = {
+          last_fed_media_pts_us_,
+          old.pipeline_anchor_us +
+              static_cast<int64_t>(std::llround(
+                  static_cast<double>(last_fed_media_pts_us_ -
+                                      old.media_anchor_us) *
+                  1000000.0 / old.rate_millionths)),
+          rate};
+    }
+    media_anchor = pts_segment_.media_anchor_us;
+    pipeline_anchor = pts_segment_.pipeline_anchor_us;
+  }
+  SB_LOG(INFO) << "Starfish PTS retimed: rate=" << rate / 1000000.0
+               << " media=" << media_anchor << " pipeline=" << pipeline_anchor;
+  WriteDiag(FormatString("retime rate=%d media=%" PRId64 " pipeline=%" PRId64,
+                         rate, media_anchor, pipeline_anchor));
+}
+
+int64_t StarfishVideoDecoder::ToPipelinePtsUs(int64_t media_pts_us) {
+  SB_DCHECK(decoder_thread_->BelongsToCurrentThread());
+  ScopedLock lock(pts_mutex_);
+  last_fed_media_pts_us_ = media_pts_us;
+  const PtsSegment& segment = pts_segment_;
+  if (segment.rate_millionths == 1000000) {
+    return segment.pipeline_anchor_us + (media_pts_us - segment.media_anchor_us);
+  }
+  return segment.pipeline_anchor_us +
+         static_cast<int64_t>(std::llround(
+             static_cast<double>(media_pts_us - segment.media_anchor_us) *
+             1000000.0 / segment.rate_millionths));
 }
 
 int64_t StarfishVideoDecoder::ToMediaPtsUs(int64_t pipeline_pts_us) const {
-  const int rate = pts_rate_millionths_.load();
-  if (rate == 1000000) return pipeline_pts_us;
-  const int64_t anchor = pts_anchor_us_.load();
-  return anchor + static_cast<int64_t>(std::llround(
-                      static_cast<double>(pipeline_pts_us - anchor) * rate /
-                      1000000.0));
+  ScopedLock lock(pts_mutex_);
+  const PtsSegment& segment =
+      has_previous_pts_segment_ &&
+              pipeline_pts_us < pts_segment_.pipeline_anchor_us
+          ? previous_pts_segment_
+          : pts_segment_;
+  if (segment.rate_millionths == 1000000) {
+    return segment.media_anchor_us + (pipeline_pts_us - segment.pipeline_anchor_us);
+  }
+  return segment.media_anchor_us +
+         static_cast<int64_t>(std::llround(
+             static_cast<double>(pipeline_pts_us - segment.pipeline_anchor_us) *
+             segment.rate_millionths / 1000000.0));
+}
+
+// One line per event: "<wall clock ms> <text>". The wall clock matches
+// JavaScript's Date.now(), so lines can be joined with media-element samples.
+void StarfishVideoDecoder::WriteDiag(const std::string& line) {
+  ScopedLock lock(diag_mutex_);
+  if (!diag_file_) {
+    return;
+  }
+  if (++diag_lines_ > 20000) {
+    // Keep the tmpfs file bounded.
+    diag_file_ = std::freopen("/tmp/ytaf-av.log", "w", diag_file_);
+    diag_lines_ = 0;
+    if (!diag_file_) {
+      return;
+    }
+  }
+  std::fprintf(diag_file_, "%" PRId64 " %s\n", WallClockMs(), line.c_str());
+  std::fflush(diag_file_);
+}
+
+void StarfishVideoDecoder::OnFrameReadyDiag(SbTime frame_time) {
+  int frames;
+  {
+    ScopedLock lock(diag_mutex_);
+    if (!diag_file_) {
+      return;
+    }
+    ++diag_frames_;
+    const int64_t now = WallClockMs();
+    if (now - diag_last_ms_ < 250) {
+      return;
+    }
+    diag_last_ms_ = now;
+    frames = diag_frames_;
+    diag_frames_ = 0;
+  }
+  WriteDiag(FormatString("frame pts=%" PRId64 " n=%d rate=%d",
+                         static_cast<int64_t>(frame_time), frames,
+                         playback_rate_millionths_.load()));
 }
 
 void StarfishVideoDecoder::SignalUnloadCompleted() {
@@ -662,6 +805,7 @@ void StarfishVideoDecoder::HandlePlayerEvent(int type,
     const SbTime frame_time =
         static_cast<SbTime>(ToMediaPtsUs(num_value / 1000));
     const SbTime target_time = seek_to_time_.load();
+    OnFrameReadyDiag(frame_time);
     if (!first_frame_presented_.exchange(true) && decoder_thread_) {
       decoder_thread_->Schedule(std::bind(
           &StarfishVideoDecoder::ApplyPlaybackStateOnDecoderThread, this));

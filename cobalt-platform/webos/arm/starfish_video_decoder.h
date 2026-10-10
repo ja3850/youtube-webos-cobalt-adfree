@@ -2,6 +2,7 @@
 #define STARBOARD_WEBOS_ARM_STARFISH_VIDEO_DECODER_H_
 
 #include <atomic>
+#include <cstdio>
 #include <string>
 
 #include <starfish-media-pipeline/StarfishMediaAPIs.h>
@@ -54,9 +55,20 @@ class StarfishVideoDecoder
   void WriteEndOfStreamOnDecoderThread();
   void ResetOnDecoderThread();
   void SignalUnloadCompleted();
-  void LatchPtsScaleOnDecoderThread(const char* reason);
-  int64_t ToPipelinePtsUs(int64_t media_pts_us) const;
+  // Linear map between media and pipeline PTS (microseconds) with slope
+  // 1/rate, pinned at an anchor point that maps media -> pipeline.
+  struct PtsSegment {
+    int64_t media_anchor_us;
+    int64_t pipeline_anchor_us;
+    int rate_millionths;
+  };
+
+  void LatchSpeedModeOnDecoderThread(const char* reason);
+  void RetimePtsOnDecoderThread();
+  int64_t ToPipelinePtsUs(int64_t media_pts_us);
   int64_t ToMediaPtsUs(int64_t pipeline_pts_us) const;
+  void WriteDiag(const std::string& line);
+  void OnFrameReadyDiag(SbTime frame_time);
   void ReportError(const std::string& message);
   void HandlePlayerEvent(int type, int64_t num_value, const char* str_value);
   static void PlayerCallback(int type,
@@ -83,19 +95,31 @@ class StarfishVideoDecoder
   bool pause_issued_ = false;
   bool startup_play_accepted_ = false;
   double applied_playback_rate_ = -1.0;
-  bool pts_scale_enabled_ = true;
+  // 'm' native rate with audioOutput=false, 'n' native rate with
+  // audioOutput=true, 'p' PTS rescaling; see ReadSpeedMode().
+  char speed_mode_ = 'm';
   std::atomic<SbTime> seek_to_time_{0};
   std::atomic<bool> pause_requested_{false};
   // Keep this 32-bit so the ARMv7 build does not require libatomic merely to
   // communicate a double between Cobalt's worker and the decoder thread.
   std::atomic<int> playback_rate_millionths_{1000000};
-  // Starfish freezes or ignores SetPlayRate() for rates other than 1 on
-  // webOS 25, so the pipeline always runs at 1x and playback speed is applied
-  // by rescaling video PTS around the latest seek target instead. Latched on
-  // the decoder thread at load and on every seek; read by firmware callbacks.
+  // Last positive rate Cobalt requested; survives the rate-0 seek preroll.
   std::atomic<int> requested_rate_millionths_{1000000};
-  std::atomic<int> pts_rate_millionths_{1000000};
-  std::atomic<SbTime> pts_anchor_us_{0};
+  // In 'p' mode the pipeline runs at 1x and video PTS are rescaled instead.
+  // A rate change starts a new segment at the last fed PTS so the pipeline
+  // timeline stays continuous; frames already queued still map through the
+  // previous segment. Written on the decoder thread, read by FRAMEREADY.
+  mutable Mutex pts_mutex_;
+  PtsSegment pts_segment_{0, 0, 1000000};
+  PtsSegment previous_pts_segment_{0, 0, 1000000};
+  bool has_previous_pts_segment_ = false;
+  int64_t last_fed_media_pts_us_ = -1;
+  // A/V sync diagnostics, enabled by /tmp/ytaf-av-diag.enable.
+  Mutex diag_mutex_;
+  FILE* diag_file_ = nullptr;
+  long diag_lines_ = 0;
+  int64_t diag_last_ms_ = 0;
+  int diag_frames_ = 0;
   std::atomic<bool> preroll_frame_sent_{false};
   std::atomic<bool> first_frame_presented_{false};
   std::atomic<bool> load_completed_{false};
