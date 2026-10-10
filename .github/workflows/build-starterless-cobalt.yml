@@ -45,6 +45,8 @@ jobs:
       COBALT_BUILD_TYPE: ${{ inputs.build_type }}
       NINJA_PARALLEL: ${{ inputs.build_parallel }}
       COBALT_BUILD_LOG: ${{ github.workspace }}/output/cobalt-${{ inputs.build_type }}.log
+      CCACHE_HOST_DIR: ${{ github.workspace }}/workdir/ccache
+      CCACHE_MAXSIZE: 5G
 
     steps:
       - name: Check out requested ref
@@ -168,7 +170,7 @@ jobs:
           set -euo pipefail
           docker build -t cobalt-build-evergreen:latest - <<'EOF'
           FROM cobalt-build-evergreen:latest
-          RUN apt update -qqy && apt install -qqy --no-install-recommends cmake gawk libwayland-bin && /opt/clean-after-apt.sh
+          RUN apt update -qqy && apt install -qqy --no-install-recommends cmake gawk libwayland-bin ccache && /opt/clean-after-apt.sh
           EOF
 
       - name: Build patched SDL-webOS bundle
@@ -182,12 +184,28 @@ jobs:
           git -C "$COBALT_SOURCE_DIR" restore --source=HEAD --worktree -- docker-compose.yml docker/linux/base/Dockerfile docker/linux/base/build/Dockerfile
           git -C "$COBALT_SOURCE_DIR" diff --quiet -- docker-compose.yml docker/linux/base/Dockerfile docker/linux/base/build/Dockerfile
 
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: workdir/ccache
+          key: ccache-cobalt-${{ steps.meta.outputs.cobalt_slug }}-${{ inputs.build_type }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-cobalt-${{ steps.meta.outputs.cobalt_slug }}-${{ inputs.build_type }}-
+            ccache-cobalt-${{ steps.meta.outputs.cobalt_slug }}-
+
       - name: Build Cobalt
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p output
           bash scripts/build-starterless-cobalt-docker.sh
+
+      - name: Save ccache
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: workdir/ccache
+          key: ccache-cobalt-${{ steps.meta.outputs.cobalt_slug }}-${{ inputs.build_type }}-${{ github.run_id }}
 
       - name: Create Cobalt runtime archive
         id: archive
