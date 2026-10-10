@@ -40,6 +40,10 @@ class StarfishVideoDecoder
   }
   void SetPause(bool pause) override;
   void SetPlaybackRate(double playback_rate) override;
+  void SetMediaTimeProvider(starboard::player::filter::MediaTimeProvider*
+                                media_time_provider) override {
+    media_time_provider_ = media_time_provider;
+  }
   void WriteInputBuffers(const InputBuffers& input_buffers) override;
   void WriteEndOfStream() override;
   void Reset() override;
@@ -70,6 +74,8 @@ class StarfishVideoDecoder
   int64_t ToMediaPtsUs(int64_t pipeline_pts_us) const;
   int64_t MapToPipelineLocked(int64_t media_pts_us) const;
   int64_t MapToMediaLocked(int64_t pipeline_pts_us) const;
+  int64_t AppendCatchUpLocked(int64_t lag_us, double rate);
+  void SyncToClockOnDecoderThread();
   bool HoldForFeedLead(const scoped_refptr<InputBuffer>& input_buffer);
   void RetryAfterFeedLeadWait();
   void WriteDiag(const std::string& line);
@@ -127,6 +133,20 @@ class StarfishVideoDecoder
   // Latest FRAMEREADY, in both domains; -1 until the first one after a seek.
   std::atomic<int64_t> last_frame_media_pts_us_{-1};
   std::atomic<int64_t> last_frame_pipeline_pts_us_{-1};
+  std::atomic<SbTime> last_frame_wall_time_{0};
+  // Closed-loop A/V sync in 'p' mode (decoder thread only). Cobalt's clock
+  // is the audio renderer's; it outlives this decoder.
+  starboard::player::filter::MediaTimeProvider* media_time_provider_ = nullptr;
+  SbTime sync_latched_at_ = 0;
+  // Video-minus-audio offset in pipeline time right after a seek, when
+  // Cobalt's preroll has aligned both; held from then on.
+  bool sync_baseline_valid_ = false;
+  double sync_baseline_sum_us_ = 0.0;
+  int sync_baseline_samples_ = 0;
+  double sync_baseline_us_ = 0.0;
+  // Media PTS from which the latest retime/correction is fully on screen.
+  int64_t sync_settled_media_us_ = -1;
+  int sync_strikes_ = 0;
   // A/V sync diagnostics, enabled by /tmp/ytaf-av-diag.enable.
   Mutex diag_mutex_;
   FILE* diag_file_ = nullptr;

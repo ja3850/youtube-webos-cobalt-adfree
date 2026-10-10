@@ -1,0 +1,34 @@
+diff --git a/starboard/shared/starboard/player/filter/video_decoder_internal.h b/starboard/shared/starboard/player/filter/video_decoder_internal.h
+index f8143ee..bc8204a 100644
+--- a/starboard/shared/starboard/player/filter/video_decoder_internal.h
++++ b/starboard/shared/starboard/player/filter/video_decoder_internal.h
+@@ -22,6 +22,7 @@
+ #include "starboard/player.h"
+ #include "starboard/shared/internal_only.h"
+ #include "starboard/shared/starboard/player/filter/common.h"
++#include "starboard/shared/starboard/player/filter/media_time_provider.h"
+ #include "starboard/shared/starboard/player/filter/video_frame_internal.h"
+ #include "starboard/shared/starboard/player/input_buffer_internal.h"
+ 
+@@ -100,6 +101,9 @@ class VideoDecoder {
+   // platform pipeline.  Frame-based decoders may ignore these notifications.
+   virtual void SetPause(bool pause) {}
+   virtual void SetPlaybackRate(double playback_rate) {}
++  // Gives external-pipeline decoders the player clock, so they can keep their
++  // own presentation clock in sync with it. The provider outlives the decoder.
++  virtual void SetMediaTimeProvider(MediaTimeProvider* media_time_provider) {}
+ 
+   // Send encoded video frames stored in |input_buffers| to decode.
+   virtual void WriteInputBuffers(const InputBuffers& input_buffers) = 0;
+diff --git a/starboard/shared/starboard/player/filter/video_renderer_internal_impl.cc b/starboard/shared/starboard/player/filter/video_renderer_internal_impl.cc
+index 6077136..4147d33 100644
+--- a/starboard/shared/starboard/player/filter/video_renderer_internal_impl.cc
++++ b/starboard/shared/starboard/player/filter/video_renderer_internal_impl.cc
+@@ -47,6 +47,7 @@ VideoRendererImpl::VideoRendererImpl(scoped_ptr<VideoDecoder> decoder,
+       number_of_frames_(0) {
+   SB_DCHECK(decoder_ != NULL);
+   SB_DCHECK(algorithm_ != NULL);
++  decoder_->SetMediaTimeProvider(media_time_provider_);
+   SB_DCHECK(decoder_->GetMaxNumberOfCachedFrames() > 1);
+   SB_DLOG_IF(WARNING, decoder_->GetMaxNumberOfCachedFrames() < 4)
+       << "VideoDecoder::GetMaxNumberOfCachedFrames() returns "

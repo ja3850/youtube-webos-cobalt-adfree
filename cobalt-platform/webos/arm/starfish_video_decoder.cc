@@ -292,6 +292,9 @@ void StarfishVideoDecoder::Initialize(const DecoderStatusCB& decoder_status_cb,
   }
   decoder_thread_.reset(new starboard::player::JobThread(
       "starfish_video_decoder", 0, kSbThreadPriorityHigh));
+  decoder_thread_->Schedule(
+      std::bind(&StarfishVideoDecoder::SyncToClockOnDecoderThread, this),
+      250 * kSbTimeMillisecond);
 }
 
 void StarfishVideoDecoder::SetPause(bool pause) {
@@ -675,6 +678,12 @@ void StarfishVideoDecoder::LatchSpeedModeOnDecoderThread(const char* reason) {
   last_fed_pipeline_pts_us_.store(-1);
   last_frame_media_pts_us_.store(-1);
   last_frame_pipeline_pts_us_.store(-1);
+  sync_latched_at_ = SbTimeGetMonotonicNow();
+  sync_baseline_valid_ = false;
+  sync_baseline_sum_us_ = 0.0;
+  sync_baseline_samples_ = 0;
+  sync_settled_media_us_ = -1;
+  sync_strikes_ = 0;
   {
     ScopedLock lock(diag_mutex_);
     if (!diag_file_ && DiagEnabled()) {
@@ -721,20 +730,10 @@ void StarfishVideoDecoder::RetimePtsOnDecoderThread() {
         lag_us = static_cast<double>(fed_pipeline - shown_pipeline) -
                  static_cast<double>(fed - shown) / new_rate;
       }
-      // Absorb the lag over the next window of media by running the video
-      // slightly faster or slower than the audio. The window keeps the slope
-      // at least half of 1/rate, so PTS stay monotonic.
-      window_us = std::max(3000000.0, 2.0 * std::fabs(lag_us) * new_rate);
-      const double catch_up = 1.0 / new_rate - lag_us / window_us;
-      pts_segments_.push_back(PtsSegment{fed, fed_pipeline, catch_up});
-      pts_segments_.push_back(PtsSegment{
-          fed + static_cast<int64_t>(window_us),
-          fed_pipeline + static_cast<int64_t>(std::llround(window_us * catch_up)),
-          1.0 / new_rate});
-      if (pts_segments_.size() > 32) {
-        pts_segments_.erase(pts_segments_.begin(),
-                            pts_segments_.end() - 32);
-      }
+      const int64_t settled = AppendCatchUpLocked(
+          static_cast<int64_t>(std::llround(lag_us)), new_rate);
+      window_us = static_cast<double>(settled - fed);
+      sync_settled_media_us_ = settled;
     }
   }
   SB_LOG(INFO) << "Starfish PTS retimed: rate=" << new_rate << " media=" << fed
@@ -743,6 +742,112 @@ void StarfishVideoDecoder::RetimePtsOnDecoderThread() {
   WriteDiag(FormatString("retime rate=%d media=%" PRId64 " pipeline=%" PRId64
                          " lag_us=%.0f window_us=%.0f",
                          rate, fed, fed_pipeline, lag_us, window_us));
+}
+
+// Appends segments from the last fed PTS that absorb `lag_us` of wall time
+// (positive: the video would trail the audio) over a window of media by
+// running the video slightly faster or slower than the audio, then continue at
+// `rate`. The window keeps the slope at least half of 1/rate, so PTS stay
+// monotonic. Returns the media PTS at which the catch-up ends.
+int64_t StarfishVideoDecoder::AppendCatchUpLocked(int64_t lag_us, double rate) {
+  const int64_t fed = last_fed_media_pts_us_;
+  const int64_t fed_pipeline = MapToPipelineLocked(fed);
+  const double lag = static_cast<double>(lag_us);
+  const double window_us = std::max(3000000.0, 2.0 * std::fabs(lag) * rate);
+  const double catch_up = 1.0 / rate - lag / window_us;
+  pts_segments_.push_back(PtsSegment{fed, fed_pipeline, catch_up});
+  const int64_t settled = fed + static_cast<int64_t>(window_us);
+  pts_segments_.push_back(PtsSegment{
+      settled,
+      fed_pipeline + static_cast<int64_t>(std::llround(window_us * catch_up)),
+      1.0 / rate});
+  if (pts_segments_.size() > 32) {
+    pts_segments_.erase(pts_segments_.begin(), pts_segments_.end() - 32);
+  }
+  return settled;
+}
+
+// Runs every 250 ms. Starfish presents video on its own clock and Cobalt plays
+// audio on another; both only align at preroll. Compare them and correct the
+// video timeline whenever the offset drifts from the one measured right after
+// the last seek.
+void StarfishVideoDecoder::SyncToClockOnDecoderThread() {
+  SB_DCHECK(decoder_thread_->BelongsToCurrentThread());
+  if (shutting_down_.load()) {
+    return;
+  }
+  decoder_thread_->Schedule(
+      std::bind(&StarfishVideoDecoder::SyncToClockOnDecoderThread, this),
+      250 * kSbTimeMillisecond);
+  if (speed_mode_ != 'p' || !media_time_provider_ || !pipeline_loaded_ ||
+      reset_in_progress_.load()) {
+    return;
+  }
+  const int64_t frame_media = last_frame_media_pts_us_.load();
+  const SbTime frame_wall = last_frame_wall_time_.load();
+  const SbTime now = SbTimeGetMonotonicNow();
+  if (frame_media < 0 || now - frame_wall > 500 * kSbTimeMillisecond) {
+    return;
+  }
+  bool is_playing = false;
+  bool is_eos_played = false;
+  bool is_underflow = false;
+  double clock_rate = 0.0;
+  const SbTime audio = media_time_provider_->GetCurrentMediaTime(
+      &is_playing, &is_eos_played, &is_underflow, &clock_rate);
+  if (!is_playing || is_eos_played || is_underflow || clock_rate <= 0.0 ||
+      pause_requested_.load()) {
+    sync_strikes_ = 0;
+    return;
+  }
+  // FRAMEREADY arrives ~10 times a second; extrapolate to now.
+  const double video =
+      static_cast<double>(frame_media) +
+      static_cast<double>(now - frame_wall) * clock_rate;
+  // In pipeline (= wall) time, positive when the video is ahead.
+  const double offset_us = (video - static_cast<double>(audio)) / clock_rate;
+
+  if (!sync_baseline_valid_) {
+    const SbTime since_latch = now - sync_latched_at_;
+    if (since_latch < 1000 * kSbTimeMillisecond) {
+      return;
+    }
+    sync_baseline_sum_us_ += offset_us;
+    if (++sync_baseline_samples_ >= 4) {
+      sync_baseline_us_ = sync_baseline_sum_us_ / sync_baseline_samples_;
+      sync_baseline_valid_ = true;
+      WriteDiag(FormatString("sync baseline_us=%.0f", sync_baseline_us_));
+    }
+    return;
+  }
+  if (sync_settled_media_us_ >= 0 && frame_media < sync_settled_media_us_) {
+    return;  // The last retime/correction is not fully on screen yet.
+  }
+  const double error_us = offset_us - sync_baseline_us_;
+  if (std::fabs(error_us) < 40000.0) {
+    sync_strikes_ = 0;
+    return;
+  }
+  if (++sync_strikes_ < 2) {
+    return;
+  }
+  sync_strikes_ = 0;
+  const double rate = ClampRateMillionths(pts_rate_millionths_) / 1000000.0;
+  int64_t settled;
+  {
+    ScopedLock lock(pts_mutex_);
+    if (last_fed_media_pts_us_ < 0) {
+      return;
+    }
+    // A video ahead by error_us must spend that much longer on screen.
+    settled = AppendCatchUpLocked(
+        static_cast<int64_t>(std::llround(-error_us)), rate);
+  }
+  sync_settled_media_us_ = settled;
+  WriteDiag(FormatString("sync correct error_us=%.0f audio=%" PRId64
+                         " video=%.0f rate=%.3f settle=%" PRId64,
+                         error_us, static_cast<int64_t>(audio), video,
+                         clock_rate, settled));
 }
 
 // Newer segments supersede older ones from their anchor on.
@@ -901,6 +1006,7 @@ void StarfishVideoDecoder::HandlePlayerEvent(int type,
     const SbTime frame_time = static_cast<SbTime>(ToMediaPtsUs(pipeline_pts_us));
     last_frame_pipeline_pts_us_.store(pipeline_pts_us);
     last_frame_media_pts_us_.store(frame_time);
+    last_frame_wall_time_.store(SbTimeGetMonotonicNow());
     const SbTime target_time = seek_to_time_.load();
     OnFrameReadyDiag(frame_time, pipeline_pts_us);
     if (!first_frame_presented_.exchange(true) && decoder_thread_) {
