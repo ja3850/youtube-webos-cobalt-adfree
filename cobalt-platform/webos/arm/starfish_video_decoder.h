@@ -74,7 +74,8 @@ class StarfishVideoDecoder
   int64_t ToMediaPtsUs(int64_t pipeline_pts_us) const;
   int64_t MapToPipelineLocked(int64_t media_pts_us) const;
   int64_t MapToMediaLocked(int64_t pipeline_pts_us) const;
-  int64_t AppendCatchUpLocked(int64_t lag_us, double rate);
+  int64_t AppendCatchUpLocked(int64_t lag_us, double rate,
+                              double min_window_us);
   void SyncToClockOnDecoderThread();
   bool HoldForFeedLead(const scoped_refptr<InputBuffer>& input_buffer);
   void RetryAfterFeedLeadWait();
@@ -147,6 +148,11 @@ class StarfishVideoDecoder
   // Media PTS from which the latest retime/correction is fully on screen.
   int64_t sync_settled_media_us_ = -1;
   int sync_strikes_ = 0;
+  // Drift below the threshold is left alone; corrections are spread over at
+  // least the window of media. /tmp/ytaf-sync-tuning holds "<threshold_ms>
+  // <window_ms>", read on every load/seek.
+  double sync_threshold_us_ = 60000.0;
+  double sync_window_us_ = 6000000.0;
   // A/V sync diagnostics, enabled by /tmp/ytaf-av-diag.enable.
   Mutex diag_mutex_;
   FILE* diag_file_ = nullptr;

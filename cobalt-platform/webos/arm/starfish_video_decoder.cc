@@ -160,6 +160,23 @@ int64_t WallClockMs() {
   return static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
 }
 
+void ReadSyncTuning(double* threshold_us, double* window_us) {
+  *threshold_us = 60000.0;
+  *window_us = 6000000.0;
+  FILE* marker = std::fopen("/tmp/ytaf-sync-tuning", "r");
+  if (!marker) {
+    return;
+  }
+  int threshold_ms = 0;
+  int window_ms = 0;
+  if (std::fscanf(marker, "%d %d", &threshold_ms, &window_ms) == 2 &&
+      threshold_ms >= 10 && window_ms >= 1000) {
+    *threshold_us = threshold_ms * 1000.0;
+    *window_us = window_ms * 1000.0;
+  }
+  std::fclose(marker);
+}
+
 int ClampRateMillionths(int rate) {
   return std::max(100000, std::min(4000000, rate));
 }
@@ -687,6 +704,7 @@ void StarfishVideoDecoder::LatchSpeedModeOnDecoderThread(const char* reason) {
   sync_baseline_samples_ = 0;
   sync_settled_media_us_ = -1;
   sync_strikes_ = 0;
+  ReadSyncTuning(&sync_threshold_us_, &sync_window_us_);
   {
     ScopedLock lock(diag_mutex_);
     if (!diag_file_ && DiagEnabled()) {
@@ -697,10 +715,12 @@ void StarfishVideoDecoder::LatchSpeedModeOnDecoderThread(const char* reason) {
                << reason << ": pts rate=" << rate / 1000000.0
                << " anchor=" << anchor;
   WriteDiag(FormatString("latch %s mode=%c target=%" PRId64
-                         " req_rate=%d lead_limit=%" PRId64,
+                         " req_rate=%d lead_limit=%" PRId64
+                         " sync_threshold_us=%.0f sync_window_us=%.0f",
                          reason, speed_mode_, static_cast<int64_t>(anchor),
                          requested_rate_millionths_.load(),
-                         feed_lead_limit_us_));
+                         feed_lead_limit_us_, sync_threshold_us_,
+                         sync_window_us_));
 }
 
 void StarfishVideoDecoder::RetimePtsOnDecoderThread() {
@@ -733,8 +753,9 @@ void StarfishVideoDecoder::RetimePtsOnDecoderThread() {
         lag_us = static_cast<double>(fed_pipeline - shown_pipeline) -
                  static_cast<double>(fed - shown) / new_rate;
       }
+      // A rate change is expected to be visible; settle it quickly.
       const int64_t settled = AppendCatchUpLocked(
-          static_cast<int64_t>(std::llround(lag_us)), new_rate);
+          static_cast<int64_t>(std::llround(lag_us)), new_rate, 3000000.0);
       window_us = static_cast<double>(settled - fed);
       sync_settled_media_us_ = settled;
     }
@@ -748,15 +769,17 @@ void StarfishVideoDecoder::RetimePtsOnDecoderThread() {
 }
 
 // Appends segments from the last fed PTS that absorb `lag_us` of wall time
-// (positive: the video would trail the audio) over a window of media by
-// running the video slightly faster or slower than the audio, then continue at
-// `rate`. The window keeps the slope at least half of 1/rate, so PTS stay
-// monotonic. Returns the media PTS at which the catch-up ends.
-int64_t StarfishVideoDecoder::AppendCatchUpLocked(int64_t lag_us, double rate) {
+// (positive: the video would trail the audio) over at least `min_window_us` of
+// media by running the video slightly faster or slower than the audio, then
+// continue at `rate`. The window keeps the slope at least half of 1/rate, so
+// PTS stay monotonic. Returns the media PTS at which the catch-up ends.
+int64_t StarfishVideoDecoder::AppendCatchUpLocked(int64_t lag_us, double rate,
+                                                  double min_window_us) {
   const int64_t fed = last_fed_media_pts_us_;
   const int64_t fed_pipeline = MapToPipelineLocked(fed);
   const double lag = static_cast<double>(lag_us);
-  const double window_us = std::max(3000000.0, 2.0 * std::fabs(lag) * rate);
+  const double window_us =
+      std::max(min_window_us, 2.0 * std::fabs(lag) * rate);
   const double catch_up = 1.0 / rate - lag / window_us;
   pts_segments_.push_back(PtsSegment{fed, fed_pipeline, catch_up});
   const int64_t settled = fed + static_cast<int64_t>(window_us);
@@ -827,7 +850,7 @@ void StarfishVideoDecoder::SyncToClockOnDecoderThread() {
     return;  // The last retime/correction is not fully on screen yet.
   }
   const double error_us = offset_us - sync_baseline_us_;
-  if (std::fabs(error_us) < 40000.0) {
+  if (std::fabs(error_us) < sync_threshold_us_) {
     sync_strikes_ = 0;
     return;
   }
@@ -844,7 +867,7 @@ void StarfishVideoDecoder::SyncToClockOnDecoderThread() {
     }
     // A video ahead by error_us must spend that much longer on screen.
     settled = AppendCatchUpLocked(
-        static_cast<int64_t>(std::llround(-error_us)), rate);
+        static_cast<int64_t>(std::llround(-error_us)), rate, sync_window_us_);
   }
   sync_settled_media_us_ = settled;
   WriteDiag(FormatString("sync correct error_us=%.0f audio=%" PRId64
