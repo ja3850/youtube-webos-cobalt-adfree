@@ -6,6 +6,8 @@ webos_sdl2_root = getenv("SDL2_BUNDLE_DIR")
 assert(webos_sdk_root != "", "WEBOS_SDK_ROOT must point to the relocated SDK")
 assert(webos_sdl2_root != "", "SDL2_BUNDLE_DIR must point to webOSbrew SDL")
 webos_tool_prefix = "$webos_sdk_root/bin/arm-webos-linux-gnueabi-"
+# Optional compiler cache prefix (e.g. "ccache "), empty by default.
+webos_compiler_launcher = getenv("YTAF_CCACHE_PREFIX")
 
 clang_toolchain("host") {
   clang_base_path = clang_base_path
@@ -19,8 +21,8 @@ clang_toolchain("host") {
 }
 
 gcc_toolchain("target") {
-  cc = "${webos_tool_prefix}gcc"
-  cxx = "${webos_tool_prefix}g++"
+  cc = "${webos_compiler_launcher}${webos_tool_prefix}gcc"
+  cxx = "${webos_compiler_launcher}${webos_tool_prefix}g++"
   ld = cxx
   ar = "${webos_tool_prefix}ar"
   nm = "${webos_tool_prefix}nm"

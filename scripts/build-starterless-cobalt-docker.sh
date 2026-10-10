@@ -60,16 +60,66 @@ rm -rf "$cobalt_root/$out_dir/content/web/adblock"
 
 echo "Starting the long Cobalt webos-arm build with $parallel jobs."
 echo "Complete build log: $build_log"
+# Compiler cache. Persisted on the host (actions/cache in CI) and mounted into
+# the container. Set YTAF_CCACHE=0 to disable.
+use_ccache="${YTAF_CCACHE:-1}"
+ccache_dir="${CCACHE_HOST_DIR:-$repo_root/workdir/ccache}"
+ccache_maxsize="${CCACHE_MAXSIZE:-5G}"
+mkdir -p "$ccache_dir"
+
+# Runs inside the container. If this Cobalt's GN toolchain supports cc_wrapper,
+# use it (covers host and target compilers). Otherwise the webOS target
+# toolchain prefixes its gcc/g++ with $YTAF_CCACHE_PREFIX (see
+# cobalt-platform/webos/arm/toolchain/BUILD.gn).
+container_script='
+git config --global --add safe.directory /code
+gn_extra=""
+have_ccache=0
+if [ "$YTAF_CCACHE" = "1" ] && command -v ccache >/dev/null 2>&1; then
+  have_ccache=1
+  ccache --version | head -n1
+  ccache --zero-stats >/dev/null 2>&1 || true
+  if grep -rqs cc_wrapper build/toolchain; then
+    echo "ccache: using GN cc_wrapper"
+    gn_extra=" cc_wrapper=\"ccache\""
+  else
+    echo "ccache: GN cc_wrapper unsupported; using toolchain compiler prefix"
+    export YTAF_CCACHE_PREFIX="ccache "
+  fi
+else
+  echo "ccache: disabled or not installed in image"
+fi
+rc=0
+gn --script-executable=python3 gen "$OUT_DIR" --args="target_platform=\"webos-arm\" build_type=\"$BUILD_TYPE\" target_cpu=\"arm\" sb_api_version=13 is_clang=false$gn_extra" &&
+  ninja -v -j "$PARALLEL" -C "$OUT_DIR" cobalt || rc=$?
+if [ "$have_ccache" = 1 ]; then
+  echo "=== ccache statistics ==="
+  ccache -s || true
+fi
+exit $rc
+'
+
 docker run --rm --platform linux/amd64 \
   -v "$cobalt_root:/code" \
   -v "$sdk_volume:/sdk" \
   -v "$sdl_root:/sdl:ro" \
+  -v "$ccache_dir:/ccache" \
   -w /code \
   -e PYTHONPATH=/code \
   -e WEBOS_SDK_ROOT=/sdk/arm-webos-linux-gnueabi_sdk-buildroot \
   -e SDL2_BUNDLE_DIR=/sdl \
+  -e OUT_DIR="$out_dir" \
+  -e BUILD_TYPE="$build_type" \
+  -e PARALLEL="$parallel" \
+  -e YTAF_CCACHE="$use_ccache" \
+  -e CCACHE_DIR=/ccache \
+  -e CCACHE_BASEDIR=/code \
+  -e CCACHE_MAXSIZE="$ccache_maxsize" \
+  -e CCACHE_COMPILERCHECK=content \
+  -e CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime,file_stat_matches \
+  -e CCACHE_COMPRESS=1 \
   cobalt-build-evergreen:latest \
-  sh -c "git config --global --add safe.directory /code && gn --script-executable=python3 gen '$out_dir' --args='target_platform=\"webos-arm\" build_type=\"$build_type\" target_cpu=\"arm\" sb_api_version=13 is_clang=false' && ninja -v -j '$parallel' -C '$out_dir' cobalt" \
+  sh -c "$container_script" \
   2>&1 | tee "$build_log"
 
 cobalt_binary="$cobalt_root/$out_dir/cobalt"
