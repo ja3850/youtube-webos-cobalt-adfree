@@ -1,0 +1,63 @@
+diff --git a/starboard/shared/starboard/player/filter/wsola_internal.cc b/starboard/shared/starboard/player/filter/wsola_internal.cc
+--- a/starboard/shared/starboard/player/filter/wsola_internal.cc
++++ b/starboard/shared/starboard/player/filter/wsola_internal.cc
+@@ -40,6 +40,14 @@
+ #include <xmmintrin.h>
+ #endif  // SB_IS(ARCH_X86) || SB_IS(ARCH_X64)
+ 
++// webOS TVs time-stretch every non-1x playback rate through this file on the
++// player worker thread. Without NEON the dot products below took most of a
++// Cortex-A76 core at 1.5x-2x and the audio sink ran dry.
++#if !defined(USE_SIMD) && (defined(__ARM_NEON) || defined(__ARM_NEON__))
++#define USE_NEON_STEREO 1
++#include <arm_neon.h>
++#endif
++
+ namespace starboard {
+ namespace shared {
+ namespace starboard {
+@@ -77,6 +85,44 @@
+ 
+   const float* a_frames = reinterpret_cast<const float*>(a->buffer());
+   const float* b_frames = reinterpret_cast<const float*>(b->buffer());
++
++#if defined(USE_NEON_STEREO)
++  if (a->channels() == 2) {
++    // vld2q deinterleaves left/right; two accumulator pairs hide the
++    // multiply-accumulate latency.
++    const float* a_src = a_frames + frame_offset_a * 2;
++    const float* b_src = b_frames + frame_offset_b * 2;
++    float32x4_t left0 = vdupq_n_f32(0.0f);
++    float32x4_t right0 = vdupq_n_f32(0.0f);
++    float32x4_t left1 = vdupq_n_f32(0.0f);
++    float32x4_t right1 = vdupq_n_f32(0.0f);
++    int s = 0;
++    for (; s + 8 <= num_frames; s += 8) {
++      const float32x4x2_t a0 = vld2q_f32(a_src + s * 2);
++      const float32x4x2_t b0 = vld2q_f32(b_src + s * 2);
++      const float32x4x2_t a1 = vld2q_f32(a_src + s * 2 + 8);
++      const float32x4x2_t b1 = vld2q_f32(b_src + s * 2 + 8);
++      left0 = vmlaq_f32(left0, a0.val[0], b0.val[0]);
++      right0 = vmlaq_f32(right0, a0.val[1], b0.val[1]);
++      left1 = vmlaq_f32(left1, a1.val[0], b1.val[0]);
++      right1 = vmlaq_f32(right1, a1.val[1], b1.val[1]);
++    }
++    const float32x4_t left = vaddq_f32(left0, left1);
++    const float32x4_t right = vaddq_f32(right0, right1);
++    const float32x2_t sums = vpadd_f32(
++        vadd_f32(vget_low_f32(left), vget_high_f32(left)),
++        vadd_f32(vget_low_f32(right), vget_high_f32(right)));
++    float left_sum = vget_lane_f32(sums, 0);
++    float right_sum = vget_lane_f32(sums, 1);
++    for (; s < num_frames; ++s) {
++      left_sum += a_src[s * 2] * b_src[s * 2];
++      right_sum += a_src[s * 2 + 1] * b_src[s * 2 + 1];
++    }
++    dot_product[0] = left_sum;
++    dot_product[1] = right_sum;
++    return;
++  }
++#endif  // defined(USE_NEON_STEREO)
+ 
+ // SIMD optimized variants can provide a massive speedup to this operation.
+ #if defined(USE_SIMD)

@@ -21,6 +21,7 @@ shared_av_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-shared-av.patc
 hardware_video_capabilities_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-hardware-video-capabilities.patch"
 pulse_soname_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-pulse-soname.patch"
 pulse_tuning_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-pulse-tuning.patch"
+wsola_neon_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-wsola-neon.patch"
 external_video_seek_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-external-video-seek.patch"
 external_video_controls_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-external-video-controls.patch"
 external_video_preroll_sync_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-external-video-preroll-sync.patch"
@@ -138,6 +139,12 @@ if ! grep -q 'kPulseBufferSizeInFrames = 16384' \
   "$cobalt_root/starboard/shared/pulse/pulse_audio_sink_type.cc"; then
   git -C "$cobalt_root" apply --check "$pulse_tuning_patch"
   git -C "$cobalt_root" apply "$pulse_tuning_patch"
+fi
+
+if ! grep -q 'USE_NEON_STEREO' \
+  "$cobalt_root/starboard/shared/starboard/player/filter/wsola_internal.cc"; then
+  git -C "$cobalt_root" apply --check "$wsola_neon_patch"
+  git -C "$cobalt_root" apply "$wsola_neon_patch"
 fi
 
 if ! grep -q 'virtual void SetSeekTime' \
