@@ -2,6 +2,7 @@
 
 #include <inttypes.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,7 @@
 #include <cstring>
 #include <functional>
 #include <sstream>
+#include <string>
 
 #include "starboard/common/log.h"
 #include "starboard/common/string.h"
@@ -21,6 +23,9 @@ namespace starboard {
 namespace shared {
 namespace webos {
 namespace {
+
+// Default for ReadAvOffsetUs() when no override file exists.
+const int kDefaultAvOffsetMs = 0;
 
 struct AdaptiveVideoCapabilities {
   int width;
@@ -161,7 +166,7 @@ int64_t WallClockMs() {
 }
 
 void ReadSyncTuning(double* threshold_us, double* window_us) {
-  *threshold_us = 60000.0;
+  *threshold_us = 40000.0;
   *window_us = 6000000.0;
   FILE* marker = std::fopen("/tmp/ytaf-sync-tuning", "r");
   if (!marker) {
@@ -175,6 +180,34 @@ void ReadSyncTuning(double* threshold_us, double* window_us) {
     *window_us = window_ms * 1000.0;
   }
   std::fclose(marker);
+}
+
+// Cobalt's audio clock counts the samples PulseAudio reports as played; the
+// TV's sound path delays them further, so video is shown this much later.
+// /tmp/ytaf-av-offset-ms overrides av-offset-ms next to the executable.
+int64_t ReadAvOffsetUs() {
+  static const std::string packaged_path = [] {
+    char exe[512];
+    const ssize_t length = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    std::string path = length > 0 ? std::string(exe, length) : std::string();
+    const size_t slash = path.rfind('/');
+    return slash == std::string::npos ? std::string()
+                                      : path.substr(0, slash) + "/av-offset-ms";
+  }();
+  int milliseconds = kDefaultAvOffsetMs;
+  FILE* marker = std::fopen("/tmp/ytaf-av-offset-ms", "r");
+  if (!marker && !packaged_path.empty()) {
+    marker = std::fopen(packaged_path.c_str(), "r");
+  }
+  if (marker) {
+    int value = 0;
+    if (std::fscanf(marker, "%d", &value) == 1 && value >= -500 &&
+        value <= 1000) {
+      milliseconds = value;
+    }
+    std::fclose(marker);
+  }
+  return static_cast<int64_t>(milliseconds) * 1000;
 }
 
 int ClampRateMillionths(int rate) {
@@ -699,9 +732,8 @@ void StarfishVideoDecoder::LatchSpeedModeOnDecoderThread(const char* reason) {
   last_frame_media_pts_us_.store(-1);
   last_frame_pipeline_pts_us_.store(-1);
   sync_latched_at_ = SbTimeGetMonotonicNow();
-  sync_baseline_valid_ = false;
-  sync_baseline_sum_us_ = 0.0;
-  sync_baseline_samples_ = 0;
+  sync_target_us_ = -static_cast<double>(ReadAvOffsetUs());
+  sync_ticks_ = 0;
   sync_settled_media_us_ = -1;
   sync_strikes_ = 0;
   ReadSyncTuning(&sync_threshold_us_, &sync_window_us_);
@@ -833,23 +865,23 @@ void StarfishVideoDecoder::SyncToClockOnDecoderThread() {
   // In pipeline (= wall) time, positive when the video is ahead.
   const double offset_us = (video - static_cast<double>(audio)) / clock_rate;
 
-  if (!sync_baseline_valid_) {
-    const SbTime since_latch = now - sync_latched_at_;
-    if (since_latch < 1000 * kSbTimeMillisecond) {
-      return;
+  if (now - sync_latched_at_ < 1000 * kSbTimeMillisecond) {
+    return;  // Let preroll and the first retime settle.
+  }
+  if (++sync_ticks_ % 4 == 0) {
+    const double target_us = -static_cast<double>(ReadAvOffsetUs());
+    if (target_us != sync_target_us_) {
+      WriteDiag(FormatString("sync target_us=%.0f (was %.0f)", target_us,
+                             sync_target_us_));
+      sync_target_us_ = target_us;
     }
-    sync_baseline_sum_us_ += offset_us;
-    if (++sync_baseline_samples_ >= 4) {
-      sync_baseline_us_ = sync_baseline_sum_us_ / sync_baseline_samples_;
-      sync_baseline_valid_ = true;
-      WriteDiag(FormatString("sync baseline_us=%.0f", sync_baseline_us_));
-    }
-    return;
+    WriteDiag(FormatString("sync offset_us=%.0f target_us=%.0f", offset_us,
+                           sync_target_us_));
   }
   if (sync_settled_media_us_ >= 0 && frame_media < sync_settled_media_us_) {
     return;  // The last retime/correction is not fully on screen yet.
   }
-  const double error_us = offset_us - sync_baseline_us_;
+  const double error_us = offset_us - sync_target_us_;
   if (std::fabs(error_us) < sync_threshold_us_) {
     sync_strikes_ = 0;
     return;

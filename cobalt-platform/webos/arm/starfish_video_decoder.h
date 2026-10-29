@@ -139,19 +139,17 @@ class StarfishVideoDecoder
   // is the audio renderer's; it outlives this decoder.
   starboard::player::filter::MediaTimeProvider* media_time_provider_ = nullptr;
   SbTime sync_latched_at_ = 0;
-  // Video-minus-audio offset in pipeline time right after a seek, when
-  // Cobalt's preroll has aligned both; held from then on.
-  bool sync_baseline_valid_ = false;
-  double sync_baseline_sum_us_ = 0.0;
-  int sync_baseline_samples_ = 0;
-  double sync_baseline_us_ = 0.0;
+  // Video-minus-audio offset in pipeline time to hold: minus the sound delay
+  // after Cobalt's audio clock (see ReadAvOffsetUs). Re-read every second.
+  double sync_target_us_ = 0.0;
+  int sync_ticks_ = 0;
   // Media PTS from which the latest retime/correction is fully on screen.
   int64_t sync_settled_media_us_ = -1;
   int sync_strikes_ = 0;
   // Drift below the threshold is left alone; corrections are spread over at
   // least the window of media. /tmp/ytaf-sync-tuning holds "<threshold_ms>
   // <window_ms>", read on every load/seek.
-  double sync_threshold_us_ = 60000.0;
+  double sync_threshold_us_ = 40000.0;
   double sync_window_us_ = 6000000.0;
   // A/V sync diagnostics, enabled by /tmp/ytaf-av-diag.enable.
   Mutex diag_mutex_;

@@ -98,6 +98,11 @@ cp "$runtime_dir/libstdc++.so.6" "$package_root/lib/libstdc++.so.6"
 cp "$runtime_dir/libgcc_s.so.1" "$package_root/lib/libgcc_s.so.1"
 cp "$repo_root/assets/icon.png" "$package_root/icon.png"
 cp "$repo_root/assets/largeIcon.png" "$package_root/largeIcon.png"
+# Calibrated lip-sync delay for the Starfish video path (see
+# starfish_video_decoder.cc ReadAvOffsetUs); /tmp/ytaf-av-offset-ms overrides it.
+if [ -f "$repo_root/assets/av-offset-ms" ]; then
+  cp "$repo_root/assets/av-offset-ms" "$package_root/av-offset-ms"
+fi
 chmod +x "$package_root/cobalt"
 
 # Final guard on the exact package tree, not only the source/output directories.
