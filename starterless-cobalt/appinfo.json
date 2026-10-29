@@ -7,7 +7,7 @@
   "title": "Youtube",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
-  "iconColor": "#173f5f",
+  "iconColor": "#ffffff",
   "spinnerOnLaunch": false,
   "transparent": true,
   "handlesRelaunch": true,
