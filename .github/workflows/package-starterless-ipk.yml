@@ -190,6 +190,38 @@ jobs:
           test -e "$libgcc_link"
           cp -L "$libstdcpp_link" "$runtime_libs/libstdc++.so.6"
           cp -L "$libgcc_link" "$runtime_libs/libgcc_s.so.1"
+          echo "WEBOS_SDK_ROOT=$sdk_extract/arm-webos-linux-gnueabi_sdk-buildroot" >> "$GITHUB_ENV"
+
+      # Live streams only offer AAC audio. Cobalt's software audio path decodes
+      # AAC with libfdk-aac when dlopen("libfdk-aac.so") succeeds, else it falls
+      # back to FFmpeg, which the app's jail does not have ("Decoder adapter
+      # cannot create decoder"). The app's lib/ is on LD_LIBRARY_PATH.
+      - name: Build libfdk-aac for the AAC audio decoder
+        env:
+          FDK_AAC_REF: v2.0.3
+          FDK_AAC_SHA: 716f4394641d53f0d79c9ddac3fa93b03a49f278
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$WEBOS_SDK_ROOT/relocate-sdk.sh"
+          toolchain="$WEBOS_SDK_ROOT/share/buildroot/toolchainfile.cmake"
+          test -f "$toolchain"
+          src="$RUNNER_TEMP/fdk-aac"
+          rm -rf "$src"
+          git clone --quiet --depth 1 --branch "$FDK_AAC_REF" https://github.com/mstorsjo/fdk-aac.git "$src"
+          test "$(git -C "$src" rev-parse HEAD)" = "$FDK_AAC_SHA"
+          cmake -S "$src" -B "$src/build" \
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PROGRAMS=OFF
+          cmake --build "$src/build" --parallel
+          lib="$(find "$src/build" -maxdepth 1 -name 'libfdk-aac.so.2*' -type f -print -quit)"
+          test -n "$lib"
+          file "$lib"
+          cp -L "$lib" "$GITHUB_WORKSPACE/starterless-cobalt/lib/libfdk-aac.so"
+          "$WEBOS_SDK_ROOT/bin/arm-webos-linux-gnueabi-strip" --strip-unneeded "$GITHUB_WORKSPACE/starterless-cobalt/lib/libfdk-aac.so" || true
+          ls -la "$GITHUB_WORKSPACE/starterless-cobalt/lib"
 
       - name: Package IPK
         id: package

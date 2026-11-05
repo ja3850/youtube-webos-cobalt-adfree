@@ -96,6 +96,13 @@ fi
 mkdir -p "$package_root/lib"
 cp "$runtime_dir/libstdc++.so.6" "$package_root/lib/libstdc++.so.6"
 cp "$runtime_dir/libgcc_s.so.1" "$package_root/lib/libgcc_s.so.1"
+# AAC decoder for live streams (Cobalt dlopens "libfdk-aac.so"; see
+# package-starterless-ipk.yml). Without it live videos fail to play.
+if [[ ! -f "$runtime_dir/libfdk-aac.so" ]]; then
+  echo "Missing libfdk-aac.so in: $runtime_dir (live streams need the AAC decoder)" >&2
+  exit 6
+fi
+cp "$runtime_dir/libfdk-aac.so" "$package_root/lib/libfdk-aac.so"
 cp "$repo_root/assets/icon.png" "$package_root/icon.png"
 cp "$repo_root/assets/largeIcon.png" "$package_root/largeIcon.png"
 # Calibrated lip-sync delay for the Starfish video path (see
