@@ -22,6 +22,7 @@ hardware_video_capabilities_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-we
 pulse_soname_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-pulse-soname.patch"
 pulse_tuning_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-pulse-tuning.patch"
 wsola_neon_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-wsola-neon.patch"
+audio_frame_tracker_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-audio-frame-tracker.patch"
 external_video_seek_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-external-video-seek.patch"
 external_video_controls_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-external-video-controls.patch"
 external_video_preroll_sync_patch="$repo_root/cobalt-platform/cobalt-23.lts.6-webos-external-video-preroll-sync.patch"
@@ -145,6 +146,12 @@ if ! grep -q 'USE_NEON_STEREO' \
   "$cobalt_root/starboard/shared/starboard/player/filter/wsola_internal.cc"; then
   git -C "$cobalt_root" apply --check "$wsola_neon_patch"
   git -C "$cobalt_root" apply "$wsola_neon_patch"
+fi
+
+if ! grep -q 'fractional_frames_played_' \
+  "$cobalt_root/starboard/shared/starboard/player/filter/audio_frame_tracker.h"; then
+  git -C "$cobalt_root" apply --check "$audio_frame_tracker_patch"
+  git -C "$cobalt_root" apply "$audio_frame_tracker_patch"
 fi
 
 if ! grep -q 'virtual void SetSeekTime' \

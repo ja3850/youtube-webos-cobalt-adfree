@@ -1,0 +1,86 @@
+diff --git a/starboard/shared/starboard/player/filter/audio_frame_tracker.cc b/starboard/shared/starboard/player/filter/audio_frame_tracker.cc
+index badce26..175e9ee 100644
+--- a/starboard/shared/starboard/player/filter/audio_frame_tracker.cc
++++ b/starboard/shared/starboard/player/filter/audio_frame_tracker.cc
+@@ -31,6 +31,7 @@ namespace filter {
+ void AudioFrameTracker::Reset() {
+   frame_records_.clear();
+   frames_played_adjusted_to_playback_rate_ = 0;
++  fractional_frames_played_ = 0.0;
+ }
+ 
+ void AudioFrameTracker::AddFrames(int number_of_frames, double playback_rate) {
+@@ -52,20 +53,22 @@ void AudioFrameTracker::AddFrames(int number_of_frames, double playback_rate) {
+ }
+ 
+ void AudioFrameTracker::RecordPlayedFrames(int number_of_frames) {
++  double played = fractional_frames_played_;
+   while (number_of_frames > 0 && !frame_records_.empty()) {
+     FrameRecord& record = frame_records_.front();
+     if (record.number_of_frames > number_of_frames) {
+-      frames_played_adjusted_to_playback_rate_ +=
+-          static_cast<int>(number_of_frames * record.playback_rate);
++      played += number_of_frames * record.playback_rate;
+       record.number_of_frames -= number_of_frames;
+       number_of_frames = 0;
+     } else {
+       number_of_frames -= record.number_of_frames;
+-      frames_played_adjusted_to_playback_rate_ +=
+-          static_cast<int>(record.number_of_frames * record.playback_rate);
++      played += record.number_of_frames * record.playback_rate;
+       frame_records_.erase(frame_records_.begin());
+     }
+   }
++  const int64_t whole_frames = static_cast<int64_t>(played);
++  frames_played_adjusted_to_playback_rate_ += whole_frames;
++  fractional_frames_played_ = played - whole_frames;
+   SB_LOG_IF(ERROR, number_of_frames != 0)
+       << "played frames overflow " << number_of_frames;
+ }
+@@ -79,7 +82,7 @@ int64_t AudioFrameTracker::GetFutureFramesPlayedAdjustedToPlaybackRate(
+     *playback_rate = last_playback_rate_;
+   }
+ 
+-  auto frames_played = frames_played_adjusted_to_playback_rate_;
++  double future_frames = fractional_frames_played_;
+   for (auto& record : frame_records_) {
+     *playback_rate = record.playback_rate;
+ 
+@@ -88,17 +91,16 @@ int64_t AudioFrameTracker::GetFutureFramesPlayedAdjustedToPlaybackRate(
+     }
+ 
+     if (record.number_of_frames > number_of_frames) {
+-      frames_played +=
+-          static_cast<int>(number_of_frames * record.playback_rate);
++      future_frames += number_of_frames * record.playback_rate;
+       number_of_frames = 0;
+     } else {
+       number_of_frames -= record.number_of_frames;
+-      frames_played +=
+-          static_cast<int>(record.number_of_frames * record.playback_rate);
++      future_frames += record.number_of_frames * record.playback_rate;
+     }
+   }
+ 
+-  return frames_played;
++  return frames_played_adjusted_to_playback_rate_ +
++         static_cast<int64_t>(future_frames);
+ }
+ 
+ }  // namespace filter
+diff --git a/starboard/shared/starboard/player/filter/audio_frame_tracker.h b/starboard/shared/starboard/player/filter/audio_frame_tracker.h
+index 4582a74..6e221f8 100644
+--- a/starboard/shared/starboard/player/filter/audio_frame_tracker.h
++++ b/starboard/shared/starboard/player/filter/audio_frame_tracker.h
+@@ -54,6 +54,11 @@ class AudioFrameTracker {
+   // Usually there are very few elements, so std::vector<> is efficient enough.
+   std::vector<FrameRecord> frame_records_;
+   int64_t frames_played_adjusted_to_playback_rate_ = 0;
++  // webOS: fractional input frames carried between RecordPlayedFrames() calls.
++  // Truncating each call lost up to one frame per query at non-integer rates
++  // (~46 frames/s at 1.75x with ~120 queries/s), so the audio clock drifted
++  // behind the audible audio by ~0.5 s per 15 min.
++  double fractional_frames_played_ = 0.0;
+   double last_playback_rate_ = 1.0;
+ };
+ 

@@ -13,6 +13,19 @@ if (!window.__ytafPreloadExecuted) {
   // Rewrite rate-scaled MediaSource probes as early as possible (idempotent).
   installCapabilityProbeFix();
 
+  // Cobalt 23 feeds audio only 0.5 s (+0.1 s) of media ahead of the playback
+  // position and does not scale that with the playback rate. At 1.75x that is
+  // ~340 ms of real time, about the size of the Pulse buffer alone, so the
+  // audio sink ran dry (voice fading/crackling). Applies to new players.
+  try {
+    if (window.h5vcc && h5vcc.settings && h5vcc.settings.set) {
+      h5vcc.settings.set('Media.AudioWriteDurationLocal', 2000000);
+      h5vcc.settings.set('Media.AudioWriteDurationRemote', 2000000);
+    }
+  } catch (err) {
+    console.warn('[ytaf] audio write duration not set:', err);
+  }
+
   if (!window.__ytafShortsResponseFilterInstalled) {
     window.__ytafShortsResponseFilterInstalled = true;
 
